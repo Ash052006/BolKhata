@@ -5,6 +5,7 @@ All secrets and infrastructure addresses must be provided via environment
 variables or a .env file — never hard-coded.  Pydantic validates types and
 required fields at import time so mis-configuration fails fast.
 """
+
 from __future__ import annotations
 
 from pydantic import field_validator
@@ -38,9 +39,7 @@ class Settings(BaseSettings):
             "postgresql+psycopg",
         )
         if not any(v.startswith(s) for s in allowed_schemes):
-            raise ValueError(
-                f"DATABASE_URL must use one of {allowed_schemes}. Got: {v!r}"
-            )
+            raise ValueError(f"DATABASE_URL must use one of {allowed_schemes}. Got: {v!r}")
         return v
 
     # ------------------------------------------------------------------ server

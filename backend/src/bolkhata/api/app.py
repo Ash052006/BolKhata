@@ -13,6 +13,7 @@ Lifespan sequence
   shutdown:
     1. Dispose the engine (closes all pooled connections cleanly).
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator

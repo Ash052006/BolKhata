@@ -12,16 +12,16 @@ Usage (run from backend/):
     uv run alembic upgrade head
     uv run alembic revision --autogenerate -m "describe change"
 """
+
 from __future__ import annotations
 
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-from alembic import context
 
 # ---------------------------------------------------------------------------
 # Alembic Config object — provides access to values in alembic.ini.
@@ -45,13 +45,14 @@ config.set_main_option("sqlalchemy.url", _settings.database_url)
 # Metadata for autogenerate support.
 # Import your SQLAlchemy Base here when models are added.
 # ---------------------------------------------------------------------------
-# from bolkhata.common.base import Base  # noqa: E402  (uncomment when models exist)
+# from bolkhata.common.base import Base
 target_metadata = None
 
 
 # ---------------------------------------------------------------------------
 # Migration runners
 # ---------------------------------------------------------------------------
+
 
 def run_migrations_offline() -> None:
     """

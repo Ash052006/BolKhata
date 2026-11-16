@@ -18,6 +18,7 @@ check_database_connectivity() opens a raw async connection and executes
 SELECT 1. It is used by GET /ready. It raises the underlying SQLAlchemy
 exception on failure — the caller decides how to respond (HTTP 503).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -57,6 +58,7 @@ def build_engine(database_url: str | None = None) -> AsyncEngine:
     )
 
     if url.startswith("sqlite"):
+
         @event.listens_for(engine.sync_engine, "connect")
         def _set_sqlite_pragma(dbapi_connection: Any, connection_record: Any) -> None:
             cursor = dbapi_connection.cursor()

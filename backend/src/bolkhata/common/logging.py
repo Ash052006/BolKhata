@@ -17,6 +17,7 @@ Design decisions
   contextvars and automatically merged into every log record by
   structlog.contextvars.merge_contextvars.
 """
+
 from __future__ import annotations
 
 import logging

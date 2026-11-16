@@ -13,6 +13,7 @@ Error-handling contract for /ready
 This deliberate distinction satisfies the requirement that /ready "handles
 database connectivity errors without masking unrelated application bugs."
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
