@@ -14,6 +14,7 @@ Coverage
 * Exception messages, tracebacks, nested exceptions, and credentials in exc_info.
 * End-to-end verification through real structlog logger emitting JSON to stdout.
 """
+
 from __future__ import annotations
 
 import io
@@ -22,14 +23,11 @@ import logging
 from typing import Any
 
 import pytest
-import structlog
 
 from bolkhata.common.logging import (
     configure_logging,
     get_logger,
     redact_processor,
-    sanitize_recursively,
-    sanitize_string,
 )
 
 # ---------------------------------------------------------------------------
@@ -96,12 +94,14 @@ class TestSensitiveKeyRedaction:
         assert result["shop_id"] == "shop-42"
 
     def test_multiple_sensitive_keys_all_redacted(self) -> None:
-        result = _call({
-            "event": "auth",
-            "password": "synthetic-test-password",  # pragma: allowlist secret
-            "token": "eyJhbGc...",
-            "user_id": "u-1",
-        })
+        result = _call(
+            {
+                "event": "auth",
+                "password": "synthetic-test-password",  # pragma: allowlist secret
+                "token": "eyJhbGc...",
+                "user_id": "u-1",
+            }
+        )
         assert result["password"] == "[REDACTED]"
         assert result["token"] == "[REDACTED]"
         assert result["user_id"] == "u-1"
@@ -114,17 +114,15 @@ class TestSensitiveKeyRedaction:
 
 class TestPhoneRedaction:
     @pytest.mark.parametrize(
-        "value,expected_contains_phone",
+        ("value", "expected_contains_phone"),
         [
             ("call me at 9876543210 ok", False),
             ("contact: +919876543210", False),
-            ("no numbers here", True),          # value is NOT a phone — passes through
-            ("1234", True),                     # too short — not a phone
+            ("no numbers here", True),  # value is NOT a phone — passes through
+            ("1234", True),  # too short — not a phone
         ],
     )
-    def test_phone_number_in_string_value(
-        self, value: str, expected_contains_phone: bool
-    ) -> None:
+    def test_phone_number_in_string_value(self, value: str, expected_contains_phone: bool) -> None:
         result = _call({"event": "log", "note": value})
         assert ("[REDACTED]" in result["note"]) is not expected_contains_phone
 
@@ -140,7 +138,7 @@ class TestPhoneRedaction:
 
 class TestBytesRedaction:
     def test_bytes_value_redacted(self) -> None:
-        raw_audio = b"\x00\xFF" * 100
+        raw_audio = b"\x00\xff" * 100
         result = _call({"event": "audio_chunk", "audio": raw_audio})
         assert result["audio"] == "[REDACTED]"
 
@@ -159,13 +157,15 @@ class TestBytesRedaction:
 
 class TestContextFieldsSurvive:
     def test_session_turn_generation_ids_pass_through(self) -> None:
-        result = _call({
-            "event": "entry_saved",
-            "session_id": "s-abc",
-            "turn_id": "t-001",
-            "generation_id": "g-xyz",
-            "transcript": "sensitive text",
-        })
+        result = _call(
+            {
+                "event": "entry_saved",
+                "session_id": "s-abc",
+                "turn_id": "t-001",
+                "generation_id": "g-xyz",
+                "transcript": "sensitive text",
+            }
+        )
         assert result["session_id"] == "s-abc"
         assert result["turn_id"] == "t-001"
         assert result["generation_id"] == "g-xyz"

@@ -5,10 +5,11 @@ Fixtures use the actual FastAPI lifespan context manager so that engine creation
 session factory initialization, and engine disposal on shutdown are exercised
 natively during tests without mocks or test-only workarounds.
 """
+
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import AsyncGenerator
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient

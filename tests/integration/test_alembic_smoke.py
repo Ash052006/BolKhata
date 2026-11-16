@@ -8,6 +8,7 @@ Demonstrates that the project's actual async migration configuration:
 4. Executes `downgrade base`, cleanly rolling back the schema changes.
 5. Leaves no temporary revisions or test databases behind in the repository.
 """
+
 from __future__ import annotations
 
 import asyncio

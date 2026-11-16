@@ -7,6 +7,7 @@ Broken path: SQLite path with non-existent parent directory → 503.
 The broken-path test does NOT use mocks.  It wires the app to a genuinely
 unreachable database URL so that the full async driver error path fires.
 """
+
 from __future__ import annotations
 
 import pytest

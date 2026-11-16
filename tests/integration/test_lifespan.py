@@ -1,12 +1,13 @@
 """
 Integration tests for FastAPI application lifespan and database lifecycle.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from sqlalchemy import text
 
 import pytest
+from sqlalchemy import text
 
 from bolkhata.api.app import create_app, lifespan
 

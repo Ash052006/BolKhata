@@ -1,6 +1,7 @@
 """
 Integration tests for GET /health.
 """
+
 from __future__ import annotations
 
 import pytest
