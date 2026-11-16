@@ -60,9 +60,15 @@ class ASRProvider(ABC):
         complete buffer after speech ends.
       * stream() accepts an AsyncIterator of raw audio chunks and yields
         interim partial transcripts.
-      * Cancellation: Cancelling the awaiting coroutine immediately halts
-        processing. Implementations must catch asyncio.CancelledError, release
-        any active compute resources, and re-raise.
+      * Cancellation: Cancelling the awaiting coroutine stops the caller
+        from awaiting the result, but native synchronous inference already
+        executing in a worker thread may continue until completion. Concrete
+        providers must use bounded worker execution and cooperative
+        cancellation where supported. If hard cancellation is required for a
+        future model runtime, a dedicated process boundary must be used
+        rather than expecting asyncio cancellation to abort OS threads.
+        Providers must release any resources they can safely release and
+        re-raise asyncio.CancelledError.
     """
 
     @abstractmethod

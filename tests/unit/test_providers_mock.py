@@ -21,7 +21,11 @@ from bolkhata.common.registry import (
 )
 from bolkhata.config.settings import Settings
 from bolkhata.llm.base import ChatMessage, LLMProvider
-from bolkhata.llm.mock import MockLLMProvider
+from bolkhata.llm.mock import (
+    MockFixtureMissingError,
+    MockFixtureTypeMismatchError,
+    MockLLMProvider,
+)
 from bolkhata.tts.base import TTSChunk, TTSProvider, TTSResult
 from bolkhata.tts.mock import MockTTSProvider, generate_mock_pcm
 
@@ -33,6 +37,17 @@ class DummyEntry(BaseModel):
     customer: str
     amount: int
     note: str = Field(default="cash")
+
+
+class ModelWithDefaults(BaseModel):
+    status: str = "ok"
+    count: int = 0
+
+
+class FinancialTransaction(BaseModel):
+    customer_name: str
+    amount_inr: float
+    transaction_type: str
 
 
 # ---------------------------------------------------------------------------
@@ -204,14 +219,46 @@ class TestLLMProviderContract:
         assert provider.structured_calls == 1
 
     @pytest.mark.asyncio
-    async def test_mock_llm_complete_structured_dynamic_fallback(self) -> None:
+    async def test_mock_llm_complete_structured_with_defaults(self) -> None:
         provider = MockLLMProvider()
-        messages = [ChatMessage(role="user", content="generate")]
-        result = await provider.complete_structured(messages, DummyEntry)
+        messages = [ChatMessage(role="user", content="ping")]
+        result = await provider.complete_structured(messages, ModelWithDefaults)
 
-        assert isinstance(result, DummyEntry)
-        assert result.customer == "mock_value"
-        assert result.amount == 1
+        assert isinstance(result, ModelWithDefaults)
+        assert result.status == "ok"
+        assert result.count == 0
+
+    @pytest.mark.asyncio
+    async def test_mock_llm_complete_structured_missing_fixture_fails(self) -> None:
+        provider = MockLLMProvider()
+        messages = [ChatMessage(role="user", content="Verma 500")]
+        with pytest.raises(
+            MockFixtureMissingError,
+            match="has required fields and no deterministic fixture was registered",
+        ):
+            await provider.complete_structured(messages, DummyEntry)
+
+    @pytest.mark.asyncio
+    async def test_mock_llm_complete_structured_financial_schema_fails_without_fixture(
+        self,
+    ) -> None:
+        provider = MockLLMProvider()
+        messages = [ChatMessage(role="user", content="Gupta 1200 udhaar")]
+        with pytest.raises(MockFixtureMissingError, match="FinancialTransaction"):
+            await provider.complete_structured(messages, FinancialTransaction)
+
+    @pytest.mark.asyncio
+    async def test_mock_llm_complete_structured_type_mismatch_rejected(self) -> None:
+        # Fixture registered for DummyEntry is actually of an incompatible type
+        provider = MockLLMProvider(
+            structured_fixtures={DummyEntry: ModelWithDefaults()}  # type: ignore[dict-item]
+        )
+        messages = [ChatMessage(role="user", content="Verma 500")]
+        with pytest.raises(
+            MockFixtureTypeMismatchError,
+            match="Fixture registered for DummyEntry is of type ModelWithDefaults",
+        ):
+            await provider.complete_structured(messages, DummyEntry)
 
 
 # ---------------------------------------------------------------------------
@@ -401,3 +448,251 @@ class TestProviderRegistry:
 
         # Reverse of [asr, tts, llm, vad] is [vad, llm, tts, asr]
         assert shutdown_order == ["vad", "llm", "tts", "asr"]
+
+    @pytest.mark.asyncio
+    async def test_asr_initialization_failure_after_partial_allocation(self) -> None:
+        """
+        Verify that if ASR initialization fails after allocating partial resources,
+        ASR is tracked immediately and its shutdown() is called to release resources.
+        """
+        settings = Settings()
+        registry = ProviderRegistry(settings)
+
+        class PartiallyAllocatingASR(MockASRProvider):
+            def __init__(self) -> None:
+                super().__init__()
+                self.allocated_resource: bool = False
+
+            async def initialize(self) -> None:
+                self.allocated_resource = True
+                raise RuntimeError("ASR failed after partial resource allocation")
+
+            async def shutdown(self) -> None:
+                await super().shutdown()
+                self.allocated_resource = False
+
+        failing_asr = PartiallyAllocatingASR()
+        registry._asr = failing_asr
+
+        with pytest.raises(RuntimeError, match="ASR failed after partial resource allocation"):
+            await registry.initialize_all()
+
+        assert not registry.is_initialized
+        assert failing_asr.is_shutdown
+        assert not failing_asr.allocated_resource
+        assert failing_asr.shutdown_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_asr_warmup_failure_after_successful_initialization(self) -> None:
+        """
+        Verify that if ASR initialize() succeeds but warmup() fails,
+        ASR is cleaned up via shutdown() and the error is propagated.
+        """
+        settings = Settings()
+        registry = ProviderRegistry(settings)
+
+        class FailingWarmupASR(MockASRProvider):
+            async def warmup(self) -> None:
+                raise RuntimeError("ASR warmup model weights verification failed")
+
+        failing_asr = FailingWarmupASR()
+        registry._asr = failing_asr
+
+        with pytest.raises(RuntimeError, match="ASR warmup model weights verification failed"):
+            await registry.initialize_all()
+
+        assert not registry.is_initialized
+        assert failing_asr.initialize_calls == 1
+        assert failing_asr.is_shutdown
+        assert failing_asr.shutdown_calls == 1
+
+    @pytest.mark.asyncio
+    async def test_tts_warmup_failure_after_asr_has_initialized(self) -> None:
+        """
+        Verify that if TTS warmup() fails after ASR has initialized & warmed up,
+        both TTS and ASR are shut down in reverse order (TTS then ASR).
+        """
+        settings = Settings()
+        registry = ProviderRegistry(settings)
+
+        class FailingWarmupTTS(MockTTSProvider):
+            async def warmup(self) -> None:
+                raise RuntimeError("TTS voice synthesis warmup failed")
+
+        failing_tts = FailingWarmupTTS()
+        registry._tts = failing_tts
+
+        shutdown_order: list[str] = []
+        orig_asr_shutdown = registry.asr.shutdown
+        orig_tts_shutdown = failing_tts.shutdown
+
+        async def asr_sd() -> None:
+            shutdown_order.append("asr")
+            await orig_asr_shutdown()
+
+        async def tts_sd() -> None:
+            shutdown_order.append("tts")
+            await orig_tts_shutdown()
+
+        registry.asr.shutdown = asr_sd  # type: ignore[method-assign]
+        failing_tts.shutdown = tts_sd  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="TTS voice synthesis warmup failed"):
+            await registry.initialize_all()
+
+        assert not registry.is_initialized
+        assert shutdown_order == ["tts", "asr"]
+        assert registry.asr.is_shutdown  # type: ignore[attr-defined]
+        assert failing_tts.is_shutdown
+
+    @pytest.mark.asyncio
+    async def test_llm_warmup_failure_after_asr_and_tts_initialized(self) -> None:
+        """
+        Verify that if LLM warmup() fails after ASR and TTS have both initialized,
+        all three are rolled back in reverse order: LLM -> TTS -> ASR.
+        """
+        settings = Settings()
+        registry = ProviderRegistry(settings)
+
+        class FailingWarmupLLM(MockLLMProvider):
+            async def warmup(self) -> None:
+                raise RuntimeError("LLM context warmup failed")
+
+        failing_llm = FailingWarmupLLM()
+        registry._llm = failing_llm
+
+        shutdown_order: list[str] = []
+        orig_asr_shutdown = registry.asr.shutdown
+        orig_tts_shutdown = registry.tts.shutdown
+        orig_llm_shutdown = failing_llm.shutdown
+
+        async def asr_sd() -> None:
+            shutdown_order.append("asr")
+            await orig_asr_shutdown()
+
+        async def tts_sd() -> None:
+            shutdown_order.append("tts")
+            await orig_tts_shutdown()
+
+        async def llm_sd() -> None:
+            shutdown_order.append("llm")
+            await orig_llm_shutdown()
+
+        registry.asr.shutdown = asr_sd  # type: ignore[method-assign]
+        registry.tts.shutdown = tts_sd  # type: ignore[method-assign]
+        failing_llm.shutdown = llm_sd  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="LLM context warmup failed"):
+            await registry.initialize_all()
+
+        assert not registry.is_initialized
+        assert shutdown_order == ["llm", "tts", "asr"]
+        assert registry.asr.is_shutdown  # type: ignore[attr-defined]
+        assert registry.tts.is_shutdown  # type: ignore[attr-defined]
+        assert failing_llm.is_shutdown
+
+    @pytest.mark.asyncio
+    async def test_multiple_cleanup_failures_preserves_original_initialization_error(
+        self,
+    ) -> None:
+        """
+        Verify that if multiple providers raise exceptions during rollback,
+        cleanup is still attempted for all providers, the original initialization
+        exception is preserved and re-raised, and failed providers remain recorded.
+        """
+        settings = Settings()
+        registry = ProviderRegistry(settings)
+
+        class CrashingTTS(MockTTSProvider):
+            async def shutdown(self) -> None:
+                raise RuntimeError("TTS failed to release audio device")
+
+        class CrashingASR(MockASRProvider):
+            async def shutdown(self) -> None:
+                raise RuntimeError("ASR failed to release model handle")
+
+        class FailingInitLLM(MockLLMProvider):
+            async def initialize(self) -> None:
+                raise ValueError("Original LLM initialization error")
+
+        asr = CrashingASR()
+        tts = CrashingTTS()
+        llm = FailingInitLLM()
+
+        registry._asr = asr
+        registry._tts = tts
+        registry._llm = llm
+
+        with pytest.raises(ValueError, match="Original LLM initialization error"):
+            await registry.initialize_all()
+
+        assert not registry.is_initialized
+        # Failed providers are retained in _initialized_providers for retry
+        assert tts in registry._initialized_providers
+        assert asr in registry._initialized_providers
+
+    @pytest.mark.asyncio
+    async def test_shutdown_failure_followed_by_successful_retry(self) -> None:
+        """
+        Verify that if a provider fails shutdown, the failure is raised and the provider
+        is retained so that a subsequent shutdown_all() retries and cleanly succeeds.
+        """
+        settings = Settings()
+        registry = ProviderRegistry(settings)
+        await registry.initialize_all()
+
+        fail_shutdown = True
+
+        orig_asr_shutdown = registry.asr.shutdown
+
+        async def flaky_asr_shutdown() -> None:
+            if fail_shutdown:
+                raise RuntimeError("Transient lock during ASR shutdown")
+            await orig_asr_shutdown()
+
+        registry.asr.shutdown = flaky_asr_shutdown  # type: ignore[method-assign]
+
+        # First shutdown attempt fails due to ASR
+        with pytest.raises(RuntimeError, match="Transient lock during ASR shutdown"):
+            await registry.shutdown_all()
+
+        # TTS and LLM succeeded shutdown, but ASR is retained for retry
+        assert not registry.is_initialized
+        assert registry.asr in registry._initialized_providers
+        assert registry.tts not in registry._initialized_providers
+        assert registry.llm not in registry._initialized_providers
+
+        # Fix condition and retry shutdown
+        fail_shutdown = False
+        await registry.shutdown_all()
+
+        assert not registry.is_initialized
+        assert registry._initialized_providers == []
+        assert registry.asr.is_shutdown  # type: ignore[attr-defined]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_initialize_and_shutdown_calls(self) -> None:
+        """
+        Verify that concurrent initialize_all and shutdown_all operations are
+        serialized cleanly via lock without deadlock or inconsistent state.
+        """
+        settings = Settings()
+        registry = ProviderRegistry(settings)
+
+        # Interleave 10 initialize and shutdown operations
+        tasks = []
+        for i in range(10):
+            if i % 2 == 0:
+                tasks.append(registry.initialize_all())
+            else:
+                tasks.append(registry.shutdown_all())
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # All tasks should complete without throwing unexpected exceptions
+        for r in results:
+            assert not isinstance(r, Exception), f"Concurrent task failed: {r}"
+
+        # Clean final state via explicit shutdown
+        await registry.shutdown_all()
+        assert not registry.is_initialized
+        assert registry._initialized_providers == []

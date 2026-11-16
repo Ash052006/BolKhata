@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import structlog
+
 from bolkhata.asr.base import ASRProvider
 from bolkhata.asr.mock import MockASRProvider
 from bolkhata.asr.vad import MockVADProvider, VADProvider
@@ -21,6 +23,8 @@ from bolkhata.llm.base import LLMProvider
 from bolkhata.llm.mock import MockLLMProvider
 from bolkhata.tts.base import TTSProvider
 from bolkhata.tts.mock import MockTTSProvider
+
+logger = structlog.get_logger(__name__)
 
 
 class ConfigurationError(ValueError):
@@ -131,73 +135,108 @@ class ProviderRegistry:
         Sequentially initialize and warm up all configured providers.
 
         Guarded by an asyncio lock to be concurrency-safe.
-        Failure-safe: if any provider fails during startup, all providers
-        that were already initialized are shut down in reverse order.
+        Failure-safe: tracks providers as soon as initialization is attempted,
+        so partial initialization failures also receive reverse-order cleanup.
+        Propagates original exception via bare raise while logging any cleanup issues.
         """
         async with self._lock:
             if self._initialized:
                 return
 
-            initialized_so_far: list[Any] = []
+            attempted_providers: list[Any] = []
             try:
-                # 1. ASR initialization & warmup
-                await self.asr.initialize()
-                await self.asr.warmup()
-                initialized_so_far.append(self.asr)
+                # 1. ASR
+                asr_prov = self.asr
+                attempted_providers.append(asr_prov)
+                await asr_prov.initialize()
+                await asr_prov.warmup()
 
-                # 2. TTS initialization & warmup
-                await self.tts.initialize()
-                await self.tts.warmup()
-                initialized_so_far.append(self.tts)
+                # 2. TTS
+                tts_prov = self.tts
+                attempted_providers.append(tts_prov)
+                await tts_prov.initialize()
+                await tts_prov.warmup()
 
-                # 3. LLM initialization & warmup
-                await self.llm.initialize()
-                await self.llm.warmup()
-                initialized_so_far.append(self.llm)
+                # 3. LLM
+                llm_prov = self.llm
+                attempted_providers.append(llm_prov)
+                await llm_prov.initialize()
+                await llm_prov.warmup()
 
                 # 4. Optional VAD
                 if self.vad is not None:
-                    await self.vad.initialize()
-                    initialized_so_far.append(self.vad)
+                    vad_prov = self.vad
+                    attempted_providers.append(vad_prov)
+                    await vad_prov.initialize()
 
-                self._initialized_providers = initialized_so_far
+                self._initialized_providers = attempted_providers
                 self._initialized = True
-            except BaseException as exc:
-                # Rollback already-initialized providers in reverse order
-                for provider in reversed(initialized_so_far):
+            except BaseException:
+                # Failure rollback: clean up all attempted providers in reverse order
+                failed_cleanups: list[Any] = []
+                for prov in reversed(attempted_providers):
                     try:
-                        await provider.shutdown()
-                    except Exception:
-                        pass
-                self._initialized_providers = []
+                        await prov.shutdown()
+                    except Exception as clean_err:
+                        failed_cleanups.append(prov)
+                        logger.error(
+                            "provider_rollback_failed",
+                            provider=type(prov).__name__,
+                            error=str(clean_err),
+                        )
+                # Retain any providers that failed shutdown for future retry
+                self._initialized_providers = failed_cleanups
                 self._initialized = False
-                raise exc
+                # Bare raise preserves the original initialization error and full traceback
+                raise
 
     async def shutdown_all(self) -> None:
         """
         Shut down all initialized providers in reverse order.
 
         Idempotent and concurrency-safe.
+        Tracks which providers succeed and retains failed providers so subsequent
+        shutdown calls can retry them.
         """
         async with self._lock:
             if not self._initialized and not self._initialized_providers:
                 return
 
-            providers_to_shutdown = list(reversed(self._initialized_providers))
-            # Also catch any created providers not in the successfully initialized list
-            for p in (self._vad, self._llm, self._tts, self._asr):
-                if p is not None and p not in providers_to_shutdown:
-                    providers_to_shutdown.append(p)
+            targets: list[Any] = []
+            if self._initialized_providers:
+                for p in reversed(self._initialized_providers):
+                    if p not in targets:
+                        targets.append(p)
+            else:
+                for p in (self._vad, self._llm, self._tts, self._asr):
+                    if p is not None and p not in targets:
+                        targets.append(p)
 
+            if not targets:
+                self._initialized = False
+                return
+
+            failed_providers: list[Any] = []
             errors: list[Exception] = []
-            for provider in providers_to_shutdown:
+
+            for provider in targets:
                 try:
                     await provider.shutdown()
                 except Exception as err:
+                    failed_providers.append(provider)
                     errors.append(err)
+                    logger.error(
+                        "provider_shutdown_failed",
+                        provider=type(provider).__name__,
+                        error=str(err),
+                    )
+
+            # Retain providers that failed shutdown for retry
+            self._initialized_providers = failed_providers
+            if failed_providers:
+                # Do not report successful shutdown if a provider failed to release its resources
+                self._initialized = False
+                raise errors[0]
 
             self._initialized = False
             self._initialized_providers = []
-
-            if errors:
-                raise errors[0]

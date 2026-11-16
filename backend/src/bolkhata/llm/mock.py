@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Sequence
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel
 
@@ -15,12 +15,21 @@ from bolkhata.llm.base import ChatMessage, LLMProvider
 T = TypeVar("T", bound=BaseModel)
 
 
+class MockFixtureMissingError(ValueError):
+    """Raised when a mock structured response is requested for a model with required fields but no fixture was registered."""
+
+
+class MockFixtureTypeMismatchError(TypeError):
+    """Raised when a registered fixture does not match the requested response model type."""
+
+
 class MockLLMProvider(LLMProvider):
     """
     Deterministic mock LLM provider.
 
     Returns configured token streams and pre-configured structured output fixtures.
-    Does not make external network requests or load local weights.
+    Does not make external network requests, load local weights, or fabricate
+    arbitrary required field values or financial amounts.
     """
 
     def __init__(
@@ -77,33 +86,21 @@ class MockLLMProvider(LLMProvider):
             fixture = self.structured_fixtures[response_model]
             if isinstance(fixture, response_model):
                 return fixture
+            raise MockFixtureTypeMismatchError(
+                f"Fixture registered for {response_model.__name__} is of type {type(fixture).__name__}, "
+                f"expected an instance of {response_model.__name__}."
+            )
 
-        # 2. Attempt zero-arg instantiation (models with all default fields)
+        # 2. Allow zero-argument construction only when the model can be instantiated with its defaults
         try:
             return response_model()
-        except Exception:
-            pass
-
-        # 3. Build a mock instance with mock values for required fields
-        dummy_data: dict[str, Any] = {}
-        for field_name, field_info in response_model.model_fields.items():
-            if field_info.is_required():
-                ann = field_info.annotation
-                if ann is not None and isinstance(ann, type):
-                    if issubclass(ann, str):
-                        dummy_data[field_name] = "mock_value"
-                    elif issubclass(ann, bool):
-                        dummy_data[field_name] = True
-                    elif issubclass(ann, int):
-                        dummy_data[field_name] = 1
-                    elif issubclass(ann, float):
-                        dummy_data[field_name] = 1.0
-                    else:
-                        dummy_data[field_name] = None
-                else:
-                    dummy_data[field_name] = "mock_value"
-
-        return response_model.model_validate(dummy_data)
+        except Exception as exc:
+            # 3. Fail closed if required fields are missing: never synthesize numbers or text
+            raise MockFixtureMissingError(
+                f"Cannot instantiate structured output model '{response_model.__name__}': "
+                "it has required fields and no deterministic fixture was registered in MockLLMProvider. "
+                "Tests must explicitly register fixtures via structured_fixtures={Model: fixture_instance}."
+            ) from exc
 
     async def shutdown(self) -> None:
         self.shutdown_calls += 1
