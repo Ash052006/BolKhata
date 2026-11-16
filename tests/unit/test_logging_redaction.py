@@ -98,7 +98,7 @@ class TestSensitiveKeyRedaction:
     def test_multiple_sensitive_keys_all_redacted(self) -> None:
         result = _call({
             "event": "auth",
-            "password": "hunter2",
+            "password": "synthetic-test-password",  # pragma: allowlist secret
             "token": "eyJhbGc...",
             "user_id": "u-1",
         })
@@ -314,8 +314,9 @@ class TestExceptionSanitization:
         assert "customer [REDACTED]" in record["exception"]
 
     def test_exception_with_api_tokens(self) -> None:
-        token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.doNotLeakToken"
-        api_key = "api_key=sk-secretKey999"
+        # Synthetic JWT and API-key patterns to test logging redaction regex filters.
+        token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.doNotLeakToken"  # pragma: allowlist secret
+        api_key = "api_key=sk-secretKey999"  # pragma: allowlist secret
 
         def log_action(logger: Any) -> None:
             try:
