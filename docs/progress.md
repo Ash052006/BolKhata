@@ -287,6 +287,20 @@ def pcm_to_float32(audio_bytes: bytes) -> array.array[float]:
     return array.array("f", (s / 32768.0 for s in raw_samples))
 ```
 
+### Documentation Milestone: Permanent Engineering Knowledge Base & Deep-Dive Manuals
+*Commits: `b065ab8` (initial progress guide), subsequent documentation commit*
+
+To preserve engineering rationale, accelerate onboarding, and provide comprehensive interview defense materials, we created a four-pillar documentation knowledge base under `docs/`:
+1. [docs/README.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/README.md): Documentation index, navigation guide, and source-of-truth precedence hierarchy.
+2. [docs/decision.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/decision.md): Central architectural decision log (22 distinct decisions from S0 to S1) detailing context, choices, alternatives rejected, trade-offs, consequences, and interview defense angles.
+3. [docs/architecture-deep-dive.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/architecture-deep-dive.md): Exhaustive technical reference detailing internal component mechanics, sequence flows, state machines, provider registry rollbacks, float32 audio normalization math, and failure recovery matrices.
+4. [docs/interview-guide.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/interview-guide.md): In-depth interview defense manual featuring 30s/1m/3m/5m pitches, grounded answers for 17+ deep technical questions, walkthroughs of critical interviewer challenges, and preparation checklists.
+
+Additionally, `agent.md` was updated with a mandatory **Documentation Maintenance Contract** binding future coding agents to update these records after every implementation task.
+
+> **Note on Scope:** No application code, provider contracts, or database schemas were modified during this documentation milestone. All existing 96 tests continue to pass with zero regressions.
+
+
 ---
 
 ## Section D — Important Architecture Decisions (ADRs)
@@ -630,6 +644,8 @@ The following table records the verifiable Git commit history on the repository:
 | `e1cf4a9` | `feat/s1-provider-foundation` | `chore: fix baseline test lint and formatting` | Cleaned up pre-existing Ruff violations (PT018, PT006) in historical test files. |
 | `516e03a` | `feat/s1-provider-foundation` | `fix(s1): preserve provider order across cleanup retries` | Implemented canonical startup-order invariant and identity-based tracking for reverse cleanup. |
 | `863b07d` | `feat/s1-provider-foundation` | `feat(s1): add PCM utilities and ASR settings` | Created `bolkhata.asr.common` (16kHz s16le PCM to float32), `asr_max_concurrency` setting, and 14 new tests. |
+| `b065ab8` | `feat/s1-provider-foundation` | `docs: add engineering progress and interview guide` | Established `docs/progress.md` living engineering journal and interview defense manual. |
+| *(Pending)* | `feat/s1-provider-foundation` | `docs: add engineering knowledge base and deep dive` | Created `docs/decision.md`, `docs/architecture-deep-dive.md`, `docs/README.md`, and updated `agent.md`. |
 
 ---
 

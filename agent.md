@@ -40,3 +40,19 @@ Code + tests passing + lint/type clean + docs updated + ADR if a decision was ma
 
 ## Working style
 Small commits with clear messages. Ask me when requirements are ambiguous rather than guessing. Point out risks and tradeoffs honestly, including when my idea is a bad one.
+
+## Documentation Maintenance Contract
+
+Every future implementation prompt must:
+
+1. Update `docs/progress.md` with what was implemented.
+2. Update `docs/decision.md` when an architectural or technical decision is made.
+3. Update `docs/architecture-deep-dive.md` when internal architecture, interfaces, data flow or lifecycle behavior changes.
+4. Update `docs/interview-guide.md` with new interview questions and grounded explanations arising from the implementation.
+5. Update `docs/README.md` if the documentation structure changes.
+6. Link the implementation commit.
+7. Distinguish implemented, partially implemented, planned and measured functionality.
+8. Never fabricate performance or accuracy numbers.
+9. Never overwrite historical decisions without recording why they were superseded.
+
+Future AI agents should read these documents before answering questions about the project.
