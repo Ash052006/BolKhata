@@ -10,12 +10,12 @@ This directory serves as the centralized, living engineering repository for arch
 
 | Document | Question It Answers | Primary Audience & When to Use It |
 |---|---|---|
-| [**progress.md**](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/progress.md) | **What did we do?** | Project history, sprint milestones, completed tasks, and verified Git evidence. Consult to know the exact status of any feature or milestone. |
-| [**decision.md**](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/decision.md) | **Why did we do it?** | Chronological log of architectural and technical decisions, alternatives rejected, trade-offs, and consequences. Consult before refactoring or proposing architectural changes. |
-| [**architecture-deep-dive.md**](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/architecture-deep-dive.md) | **How does it work?** | In-depth technical breakdown of internal mechanics, provider registry state machines, audio PCM normalization, lifecycles, and failure handling. |
-| [**interview-guide.md**](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/interview-guide.md) | **How do I explain it?** | Technical interview questions, system defense scenarios, critical challenges, and preparation checklists grounded in actual code. |
-| [**adr/**](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/) | **What was formally accepted?** | Formal Architecture Decision Records (ADR 0001: Tooling, ADR 0002: Domain Boundary, ADR 0003: Provider Interfaces). |
-| [**slo.md**](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/slo.md) | **What are the performance goals?** | Service Level Objectives and latency budget allocations on target hardware. |
+| [**progress.md**](progress.md) | **What did we do?** | Project history, sprint milestones, completed tasks, and verified Git evidence. Consult to know the exact status of any feature or milestone. |
+| [**decision.md**](decision.md) | **Why did we do it?** | Chronological log of architectural and technical decisions, alternatives rejected, trade-offs, and consequences. Consult before refactoring or proposing architectural changes. |
+| [**architecture-deep-dive.md**](architecture-deep-dive.md) | **How does it work?** | In-depth technical breakdown of internal mechanics, provider registry state machines, audio PCM normalization, lifecycles, and failure handling. |
+| [**interview-guide.md**](interview-guide.md) | **How do I explain it?** | Technical interview questions, system defense scenarios, critical challenges, and preparation checklists grounded in actual code. |
+| [**adr/**](adr/) | **What was formally accepted?** | Formal Architecture Decision Records (ADR 0001: Tooling, ADR 0002: Domain Boundary, ADR 0003: Provider Interfaces). |
+| [**slo.md**](slo.md) | **What are the performance goals?** | Service Level Objectives and latency budget allocations on target hardware. |
 
 ---
 

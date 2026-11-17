@@ -59,7 +59,7 @@ It captures the architectural, technological, and engineering trade-offs made ac
 - **Status:** Implemented Decision
 - **Related files:** `pyproject.toml`, `.pre-commit-config.yaml`, `docker-compose.yml`, `backend/`, `frontend/`
 - **Related commit:** `bd11710`
-- **Related ADR:** [ADR 0001: Tooling Choices](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0001-tooling-choices.md)
+- **Related ADR:** [ADR 0001: Tooling Choices](adr/0001-tooling-choices.md)
 
 **Context:**
 BolKhata requires a high-performance Python speech backend and a mobile-friendly browser interface for kirana shopkeepers. Splitting the project into separate Git repositories would introduce cross-repo version drift, synchronized release overhead, and friction during local end-to-end testing under tight hackathon timelines.
@@ -95,7 +95,7 @@ Verified in `docker-compose.yml` and root CI configuration passing in commit `bd
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/api/app.py`, `backend/src/bolkhata/api/routes/health.py`
 - **Related commit:** `bd11710`
-- **Related ADR:** [ADR 0001: Tooling Choices](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0001-tooling-choices.md)
+- **Related ADR:** [ADR 0001: Tooling Choices](adr/0001-tooling-choices.md)
 
 **Context:**
 The HTTP/WebSocket server must support high-concurrency real-time audio streaming while providing cloud-native observability for orchestrators.
@@ -131,7 +131,7 @@ Verified by `tests/integration/test_health.py` and `tests/integration/test_ready
 - **Status:** Implemented Decision
 - **Related files:** `frontend/package.json`, `frontend/vite.config.ts`, `frontend/src/App.tsx`
 - **Related commit:** `bd11710`
-- **Related ADR:** [ADR 0001: Tooling Choices](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0001-tooling-choices.md)
+- **Related ADR:** [ADR 0001: Tooling Choices](adr/0001-tooling-choices.md)
 
 **Context:**
 The frontend must run reliably on low-cost Android smartphones in Indian retail stores, capture uncompressed microphone audio via Web Audio API, and render instantaneous UI state changes.
@@ -167,7 +167,7 @@ Audio recording will use client-side `AudioWorklet` streaming raw PCM directly o
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/common/db.py`, `backend/alembic/env.py`, `backend/alembic/script.py.mako`
 - **Related commit:** `bd11710`
-- **Related ADR:** [ADR 0001: Tooling Choices](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0001-tooling-choices.md)
+- **Related ADR:** [ADR 0001: Tooling Choices](adr/0001-tooling-choices.md)
 
 **Context:**
 The database layer must support asynchronous queries to avoid blocking the event loop during transactions, while enforcing formal schema versioning across developer machines and Docker environments.
@@ -203,7 +203,7 @@ Verified by `tests/integration/test_alembic_smoke.py`, which performs a live sch
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/common/db.py`, `backend/src/bolkhata/config/settings.py`, `docker-compose.yml`
 - **Related commit:** `bd11710`
-- **Related ADR:** [ADR 0001: Tooling Choices](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0001-tooling-choices.md)
+- **Related ADR:** [ADR 0001: Tooling Choices](adr/0001-tooling-choices.md)
 
 **Context:**
 BolKhata must run locally on developer laptops with zero external services (embedded SQLite), yet support multi-container production deployments (PostgreSQL) without code modifications.
@@ -239,7 +239,7 @@ Verified in `backend/src/bolkhata/common/db.py` (WAL pragma execution) and `test
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/common/logging.py`, `tests/unit/test_logging_redaction.py`
 - **Related commit:** `bd11710`
-- **Related ADR:** [ADR 0001: Tooling Choices](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0001-tooling-choices.md)
+- **Related ADR:** [ADR 0001: Tooling Choices](adr/0001-tooling-choices.md)
 
 **Context:**
 Voice ledger applications capture customer names, phone numbers, and transaction balances. Accidental leakage of this data into centralized log aggregators violates India's Digital Personal Data Protection (DPDP) Act and basic merchant privacy.
@@ -345,7 +345,7 @@ Zero unhandled type errors across the entire codebase.
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/domains/`, `frontend/src/apps/ledger/`
 - **Related commit:** `bd11710`
-- **Related ADR:** [ADR 0002: Hackathon Scope and Domain Isolation Boundary](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0002-hackathon-scope-and-domain-isolation.md)
+- **Related ADR:** [ADR 0002: Hackathon Scope and Domain Isolation Boundary](adr/0002-hackathon-scope-and-domain-isolation.md)
 
 **Context:**
 Hackathon requirements and problem statements evolve. Tightly coupling speech streaming code with kirana ledger business logic makes it difficult to pivot or reuse the voice pipeline for other retail domains.
@@ -383,7 +383,7 @@ Verified in `backend/src/bolkhata/domains/` package layout and ADR 0002.
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/asr/base.py`, `backend/src/bolkhata/tts/base.py`, `backend/src/bolkhata/llm/base.py`, `backend/src/bolkhata/asr/vad.py`
 - **Related commit:** `96b2b52`
-- **Related ADR:** [ADR 0003: Provider Interfaces and Registry](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0003-provider-interfaces-and-registry.md)
+- **Related ADR:** [ADR 0003: Provider Interfaces and Registry](adr/0003-provider-interfaces-and-registry.md)
 
 **Context:**
 Machine learning runtimes vary drastically across hardware: Apple Silicon runs MLX or Metal; NVIDIA GPUs run CUDA/CTranslate2; developer CI environments have no GPUs. Directly importing neural model libraries in route handlers couples the codebase to specific hardware.
@@ -419,7 +419,7 @@ Verified by `tests/unit/test_providers_mock.py` confirming mock providers satisf
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/asr/mock.py`, `backend/src/bolkhata/tts/mock.py`, `backend/src/bolkhata/llm/mock.py`
 - **Related commit:** `96b2b52`
-- **Related ADR:** [ADR 0003: Provider Interfaces and Registry](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0003-provider-interfaces-and-registry.md)
+- **Related ADR:** [ADR 0003: Provider Interfaces and Registry](adr/0003-provider-interfaces-and-registry.md)
 
 **Context:**
 Downloading multi-gigabyte neural weights (Whisper models, LLM weights) in CI causes slow, flaky, expensive builds that fail when external networks hiccup.
@@ -455,7 +455,7 @@ CI runs deterministically on every commit with 100% offline hermetic execution.
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/common/registry.py`, `backend/src/bolkhata/config/settings.py`
 - **Related commit:** `96b2b52`
-- **Related ADR:** [ADR 0003: Provider Interfaces and Registry](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0003-provider-interfaces-and-registry.md)
+- **Related ADR:** [ADR 0003: Provider Interfaces and Registry](adr/0003-provider-interfaces-and-registry.md)
 
 **Context:**
 Providers need configuration (model paths, device selection, concurrency limits) and must be shared across requests without global mutable state.
@@ -491,7 +491,7 @@ Verified by `test_default_mock_selection` and `test_registry_concurrency_safe_in
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/common/registry.py`
 - **Related commits:** `687385c`, `516e03a`
-- **Related ADR:** [ADR 0003: Provider Interfaces and Registry](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0003-provider-interfaces-and-registry.md)
+- **Related ADR:** [ADR 0003: Provider Interfaces and Registry](adr/0003-provider-interfaces-and-registry.md)
 
 **Context:**
 Providers have implicit pipeline dependencies. A speech pipeline processes audio through ASR $\rightarrow$ TTS $\rightarrow$ LLM $\rightarrow$ VAD. Shutting down providers in arbitrary order can cause active requests to fail if downstream dependencies disappear before upstream inputs.

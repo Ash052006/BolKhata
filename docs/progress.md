@@ -291,10 +291,10 @@ def pcm_to_float32(audio_bytes: bytes) -> array.array[float]:
 *Commits: `b065ab8` (initial progress guide), subsequent documentation commit*
 
 To preserve engineering rationale, accelerate onboarding, and provide comprehensive interview defense materials, we created a four-pillar documentation knowledge base under `docs/`:
-1. [docs/README.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/README.md): Documentation index, navigation guide, and source-of-truth precedence hierarchy.
-2. [docs/decision.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/decision.md): Central architectural decision log (22 distinct decisions from S0 to S1) detailing context, choices, alternatives rejected, trade-offs, consequences, and interview defense angles.
-3. [docs/architecture-deep-dive.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/architecture-deep-dive.md): Exhaustive technical reference detailing internal component mechanics, sequence flows, state machines, provider registry rollbacks, float32 audio normalization math, and failure recovery matrices.
-4. [docs/interview-guide.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/interview-guide.md): In-depth interview defense manual featuring 30s/1m/3m/5m pitches, grounded answers for 17+ deep technical questions, walkthroughs of critical interviewer challenges, and preparation checklists.
+1. [docs/README.md](README.md): Documentation index, navigation guide, and source-of-truth precedence hierarchy.
+2. [docs/decision.md](decision.md): Central architectural decision log (22 distinct decisions from S0 to S1) detailing context, choices, alternatives rejected, trade-offs, consequences, and interview defense angles.
+3. [docs/architecture-deep-dive.md](architecture-deep-dive.md): Exhaustive technical reference detailing internal component mechanics, sequence flows, state machines, provider registry rollbacks, float32 audio normalization math, and failure recovery matrices.
+4. [docs/interview-guide.md](interview-guide.md): In-depth interview defense manual featuring 30s/1m/3m/5m pitches, grounded answers for 17+ deep technical questions, walkthroughs of critical interviewer challenges, and preparation checklists.
 
 Additionally, `agent.md` was updated with a mandatory **Documentation Maintenance Contract** binding future coding agents to update these records after every implementation task.
 
@@ -377,7 +377,7 @@ Interview Topics:
   > "In an AI speech system, coupling route handlers directly to specific machine learning libraries creates three major issues: testing becomes slow and non-deterministic because CI must download gigabytes of model weights; switching hardware (e.g. from an Apple Silicon Mac using Metal to an NVIDIA GPU using CUDA) requires rewriting application code; and benchmarking alternative models becomes invasive.
   > By introducing abstract contracts (`ASRProvider`, `TTSProvider`, `LLMProvider`) and a centralized `ProviderRegistry`, the application code only depends on high-level interfaces. In CI, we inject deterministic mock providers that run in milliseconds without network or GPU access. In production, we swap providers via environment configuration (`ASR_PROVIDER=faster_whisper` or `mlx_whisper`) without altering a single line of business logic."
 - **Deeper Follow-Up:** How do you handle capability differences between providers (e.g., if one ASR engine supports word-level timestamps but another does not)?
-- **What to show in code:** [backend/src/bolkhata/asr/base.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/asr/base.py) (contract definition) and [backend/src/bolkhata/common/registry.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/common/registry.py) (factory instantiation).
+- **What to show in code:** [backend/src/bolkhata/asr/base.py](../backend/src/bolkhata/asr/base.py) (contract definition) and [backend/src/bolkhata/common/registry.py](../backend/src/bolkhata/common/registry.py) (factory instantiation).
 
 #### Q1.2: How would you scale this system from a single kirana store to thousands of concurrent merchants?
 - **What the interviewer is testing:** Knowledge of distributed system bottlenecks, CPU/GPU saturation, stateful vs stateless services, and horizontal scaling.
@@ -389,7 +389,7 @@ Interview Topics:
   > 3. Database operations use PostgreSQL with read-replicas, and session state is stored in distributed caches (Redis).
   > 4. For local kirana resilience, we maintain an edge-computing mode where a local workstation or mobile PWA performs offline inference, syncing transactions asynchronously when connectivity resumes."
 - **Deeper Follow-Up:** How do you handle sticky sessions if a merchant's push-to-talk stream is split across multiple network packets?
-- **What to show in code:** Point to the planned WebSocket architecture and bounded concurrency settings in [backend/src/bolkhata/config/settings.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/config/settings.py).
+- **What to show in code:** Point to the planned WebSocket architecture and bounded concurrency settings in [backend/src/bolkhata/config/settings.py](../backend/src/bolkhata/config/settings.py).
 
 #### Q1.3: Why separate domain logic from infrastructure, and how is it enforced?
 - **What the interviewer is testing:** Architectural boundaries, domain-driven design, and preventing domain leak into core pipelines.
@@ -397,7 +397,7 @@ Interview Topics:
   > "Under ADR 0002, BolKhata enforces a strict boundary between speech pipeline infrastructure and business domains (`bolkhata/domains/ledger`). If we ever pivot the product from kirana ledgers to healthcare prescription logging or civic grievance intake, the real-time voice pipeline (VAD $\rightarrow$ ASR $\rightarrow$ Dialogue State Machine $\rightarrow$ TTS) remains 100% untouched.
   > Each domain implements a standardized `DomainPack` (schema, normalizers, entity resolvers, read-back templates). Code outside `domains/` is strictly forbidden from importing anything from `domains/ledger`."
 - **Deeper Follow-Up:** How would you enforce this import boundary automatically in CI?
-- **What to show in code:** [docs/adr/0002-hackathon-scope-and-domain-isolation.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0002-hackathon-scope-and-domain-isolation.md).
+- **What to show in code:** [docs/adr/0002-hackathon-scope-and-domain-isolation.md](adr/0002-hackathon-scope-and-domain-isolation.md).
 
 ---
 
@@ -411,7 +411,7 @@ Interview Topics:
   > - **Concurrency (I/O-bound):** Managed by Python's single-threaded `asyncio` event loop. It handles hundreds of incoming WebSocket frames, HTTP requests, and async database queries concurrently without blocking.
   > - **Parallelism (Compute-bound):** CTranslate2 (Faster-Whisper) executes native C++ matrix multiplications across multiple CPU/GPU threads, releasing Python's GIL. If we ran synchronous inference directly on the asyncio loop, it would freeze the loop, dropping WebSocket frames and failing health checks. Therefore, inference must be offloaded using `asyncio.to_thread()`."
 - **Deeper Follow-Up:** What are the hidden risks of using `asyncio.to_thread()` with compute-bound neural models?
-- **What to show in code:** [backend/src/bolkhata/asr/mock.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/asr/mock.py) (async contract definitions).
+- **What to show in code:** [backend/src/bolkhata/asr/mock.py](../backend/src/bolkhata/asr/mock.py) (async contract definitions).
 
 #### Q2.2: What happens when an awaiting coroutine is cancelled while native inference is running in `asyncio.to_thread()`?
 - **What the interviewer is testing:** Advanced understanding of Python thread execution and cancellation semantics.
@@ -420,7 +420,7 @@ Interview Topics:
   > However, **Python cannot forcefully kill an operating system thread**. The underlying worker thread in the thread pool continues executing the native C++ inference to completion; its return value is simply discarded when finished.
   > In BolKhata, we explicitly documented this invariant in ADR 0003: cancellation releases the event loop immediately, but does not abort in-flight native CTranslate2 compute. To prevent resource exhaustion from abandoned requests, we bound concurrency via semaphores rather than spawning unconstrained threads."
 - **Deeper Follow-Up:** How could you achieve true immediate hardware abort if required?
-- **What to show in code:** [docs/adr/0003-provider-interfaces-and-registry.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0003-provider-interfaces-and-registry.md) (Contract Invariants: Streaming and Cancellation).
+- **What to show in code:** [docs/adr/0003-provider-interfaces-and-registry.md](adr/0003-provider-interfaces-and-registry.md) (Contract Invariants: Streaming and Cancellation).
 
 #### Q2.3: How does startup rollback work in the provider registry?
 - **What the interviewer is testing:** Distributed lifecycle management, exception safety, and resource leak prevention.
@@ -429,7 +429,7 @@ Interview Topics:
   > In `ProviderRegistry.initialize()`, providers are initialized sequentially: ASR $\rightarrow$ TTS $\rightarrow$ LLM $\rightarrow$ VAD. As soon as a provider successfully completes `initialize()`, it is tracked in `_initialized_providers`.
   > If a subsequent provider raises an exception during `initialize()` or `warmup()`, the registry catches the error, initiates an immediate reverse-order cleanup of all already-initialized providers, resets its internal state, and re-raises the original exception. This guarantees failure-atomic lifecycle management."
 - **Deeper Follow-Up:** What happens if a cleanup operation itself throws an exception during a rollback?
-- **What to show in code:** [backend/src/bolkhata/common/registry.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/common/registry.py) (lines 140–180).
+- **What to show in code:** [backend/src/bolkhata/common/registry.py](../backend/src/bolkhata/common/registry.py) (lines 140–180).
 
 ---
 
@@ -444,7 +444,7 @@ Interview Topics:
   > 2. **Bandwidth & Latency:** 16 kHz mono 16-bit audio produces exactly $16,000 \times 2 = 32,000$ bytes/sec (32 KB/s). This is small enough to stream over low-bandwidth 3G/4G connections without compression artifacts.
   > 3. **Zero Decode Overhead:** Compressed formats (MP3, AAC) require codec decompression on the server before feeding tensors. Raw PCM can be converted directly into float32 tensors with basic integer division."
 - **Deeper Follow-Up:** Why does endianness matter when processing audio across network boundaries?
-- **What to show in code:** [backend/src/bolkhata/asr/common.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/asr/common.py) (constants and `byteswap()` logic).
+- **What to show in code:** [backend/src/bolkhata/asr/common.py](../backend/src/bolkhata/asr/common.py) (constants and `byteswap()` logic).
 
 #### Q3.2: What is the difference between Faster-Whisper and MLX-Whisper?
 - **What the interviewer is testing:** Knowledge of AI runtimes, quantization, and hardware-specific acceleration.
@@ -454,7 +454,7 @@ Interview Topics:
   > - **MLX-Whisper:** Specifically designed for Apple Silicon (M1/M2/M3/M4) using Apple's MLX machine learning framework. It leverages unified memory and Metal GPU cores natively, outperforming CPU-based CTranslate2 on macOS without requiring CUDA.
   > BolKhata provides adapters for both: MLX-Whisper for Mac development/demos, and Faster-Whisper for Linux/Windows deployment."
 - **Deeper Follow-Up:** How does INT8 quantization affect Word Error Rate (WER) on Indian accented speech?
-- **What to show in code:** [docs/adr/0001-tooling-choices.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0001-tooling-choices.md) and [docs/adr/0003-provider-interfaces-and-registry.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0003-provider-interfaces-and-registry.md).
+- **What to show in code:** [docs/adr/0001-tooling-choices.md](adr/0001-tooling-choices.md) and [docs/adr/0003-provider-interfaces-and-registry.md](adr/0003-provider-interfaces-and-registry.md).
 
 #### Q3.3: Why does speech recognition frequently confuse Indian spoken numbers, and how do you mitigate it?
 - **What the interviewer is testing:** Domain awareness of Indian speech recognition challenges and mitigation strategies.
@@ -483,7 +483,7 @@ Interview Topics:
   > 2. **Offline Conflict Resolution:** When offline mobile clients sync with the server, append-only logs can be merged deterministically using vector clocks or timestamps without row-level overwrite collisions.
   > 3. **Fraud & Bug Prevention:** Accidental code bugs cannot wipe out customer balances."
 - **Deeper Follow-Up:** How do you efficiently calculate a customer's current balance if the ledger contains millions of historical transactions?
-- **What to show in code:** Master context rules in [bolkhata-agent-prompts.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/bolkhata-agent-prompts.md) (Money safety principles).
+- **What to show in code:** Master context rules in [bolkhata-agent-prompts.md](../bolkhata-agent-prompts.md) (Money safety principles).
 
 #### Q4.2: Why must the LLM NEVER compute or decide financial amounts?
 - **What the interviewer is testing:** AI safety, deterministic vs probabilistic systems, and financial risk management.
@@ -494,7 +494,7 @@ Interview Topics:
   > - The LLM is used strictly for **intent classification** and **semantic slot extraction** (identifying customer names and item descriptions).
   > - **All arithmetic, currency parsing, and balance calculations are performed by deterministic, unit-tested Python code**."
 - **Deeper Follow-Up:** How do you handle cases where the customer speaks a complex mathematical request like *"Pichla aadha maaf kar do"*?
-- **What to show in code:** Section D ADR table and [docs/adr/0003-provider-interfaces-and-registry.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/adr/0003-provider-interfaces-and-registry.md).
+- **What to show in code:** Section D ADR table and [docs/adr/0003-provider-interfaces-and-registry.md](adr/0003-provider-interfaces-and-registry.md).
 
 #### Q4.3: How does idempotency prevent duplicate transactions in voice interfaces?
 - **What the interviewer is testing:** Network reliability, duplicate request handling, and distributed transaction safety.
@@ -505,7 +505,7 @@ Interview Topics:
   > 2. When a commit request hits the database, the ledger table enforces a unique constraint on `idempotency_key`.
   > 3. If a duplicate request arrives with the same key, the backend returns the already-committed transaction without creating a second ledger row."
 - **Deeper Follow-Up:** What status code and payload should an idempotent API return when a duplicate key is submitted?
-- **What to show in code:** Master context rules in [bolkhata-agent-prompts.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/bolkhata-agent-prompts.md).
+- **What to show in code:** Master context rules in [bolkhata-agent-prompts.md](../bolkhata-agent-prompts.md).
 
 ---
 
@@ -521,7 +521,7 @@ Interview Topics:
   > 3. **Recursive Exception Traversal:** Inspects nested exception chains and traceback frames, sanitizing local variables so that unexpected crashes cannot dump customer data into log aggregators.
   > 4. **Fail-Closed Design:** If the redaction logic itself encounters an unhandled formatting error, it emits a safe sentinel log rather than crashing or leaking unredacted raw data."
 - **Deeper Follow-Up:** Why is logging raw audio bytes or transcripts at INFO level dangerous?
-- **What to show in code:** [backend/src/bolkhata/common/logging.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/common/logging.py) and [tests/unit/test_logging_redaction.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/tests/unit/test_logging_redaction.py).
+- **What to show in code:** [backend/src/bolkhata/common/logging.py](../backend/src/bolkhata/common/logging.py) and [tests/unit/test_logging_redaction.py](../tests/unit/test_logging_redaction.py).
 
 #### Q5.2: What happens if the database crashes while the voice pipeline is active?
 - **What the interviewer is testing:** Fault tolerance, circuit breaking, health probes, and graceful degradation.
@@ -534,7 +534,7 @@ Interview Topics:
   > 2. The pipeline transitions the session to an error state and synthesizes an immediate voice prompt: *'Khata save nahi ho paya. Kripya dobara koshish karein.'*
   > 3. The transaction payload is preserved in the client's local IndexedDB buffer so that no merchant data is lost, allowing auto-sync once the backend recovers."
 - **Deeper Follow-Up:** How do you test database disconnection in automated integration tests without killing the host database server?
-- **What to show in code:** [tests/integration/test_ready.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/tests/integration/test_ready.py) (uses `mock_db_unreachable` fixture).
+- **What to show in code:** [tests/integration/test_ready.py](../tests/integration/test_ready.py) (uses `mock_db_unreachable` fixture).
 
 ---
 
@@ -550,7 +550,7 @@ Interview Topics:
   > 3. Tests verify state machine transitions, concurrency bounds, error handling, and payload transformations using these mocks.
   > 4. Real neural models are evaluated separately in dedicated benchmark and evaluation harnesses (`docs/benchmarks`), keeping standard CI test runs under 1 second."
 - **Deeper Follow-Up:** How do you ensure your mock implementation does not drift from the behavior of the real provider?
-- **What to show in code:** [backend/src/bolkhata/asr/mock.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/asr/mock.py) and [tests/unit/test_providers_mock.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/tests/unit/test_providers_mock.py).
+- **What to show in code:** [backend/src/bolkhata/asr/mock.py](../backend/src/bolkhata/asr/mock.py) and [tests/unit/test_providers_mock.py](../tests/unit/test_providers_mock.py).
 
 #### Q6.2: Why do you run pre-commit hooks twice consecutively in CI?
 - **What the interviewer is testing:** Knowledge of formatter idempotency, git hooks, and build reproducibility.
@@ -572,7 +572,7 @@ Interview Topics:
   > "**The Bug:** In `ProviderRegistry.shutdown()`, providers are shut down in reverse startup order (VAD $\rightarrow$ LLM $\rightarrow$ TTS $\rightarrow$ ASR). If a provider's `shutdown()` raised an exception, previously our code popped it from `_initialized_providers` and appended it to a `failed` list for retry. If multiple providers failed, their relative ordering in the retry list was reversed, violating the shutdown sequence invariant on subsequent retry attempts.
   > **The Solution:** We established a **canonical startup-order invariant**. The registry tracks initialized providers by identity in their canonical creation order (`[ASR, TTS, LLM, VAD]`). During shutdown or rollback, the registry iterates in `reversed()` order. Providers are only removed from the list when their shutdown *succeeds*. If one or more fail, the remaining providers retain their exact original relative positions, guaranteeing that any subsequent shutdown call always retries in strict reverse-startup sequence."
 - **Deeper Follow-Up:** How did you test this scenario to ensure no regressions?
-- **What to show in code:** `test_multiple_providers_fail_shutdown_retried_in_reverse_startup_order` in [tests/unit/test_providers_mock.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/tests/unit/test_providers_mock.py).
+- **What to show in code:** `test_multiple_providers_fail_shutdown_retried_in_reverse_startup_order` in [tests/unit/test_providers_mock.py](../tests/unit/test_providers_mock.py).
 
 #### Q7.2: Why did you use Python's standard-library `array` module instead of NumPy for audio utilities?
 - **What the interviewer is testing:** Dependency minimalism, binary compatibility, and performance trade-offs.
@@ -581,7 +581,7 @@ Interview Topics:
   > Python's standard library `array` module (`array.array('h')` for signed 16-bit integers and `array.array('f')` for 32-bit floats) implements Python's buffer protocol directly in C. It supports fast byte parsing via `.frombytes()`, native endian swapping via `.byteswap()`, and contiguous memory allocation without a single third-party dependency.
   > Concrete ASR engines (like CTranslate2) accept buffer protocol objects directly, allowing our shared audio utilities to remain completely zero-dependency."
 - **Deeper Follow-Up:** What are the exact mathematical normalization bounds implemented in `pcm_to_float32`?
-- **What to show in code:** [backend/src/bolkhata/asr/common.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/backend/src/bolkhata/asr/common.py) and [tests/unit/test_asr_common.py](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/tests/unit/test_asr_common.py).
+- **What to show in code:** [backend/src/bolkhata/asr/common.py](../backend/src/bolkhata/asr/common.py) and [tests/unit/test_asr_common.py](../tests/unit/test_asr_common.py).
 
 ---
 
