@@ -321,6 +321,23 @@ class TestProviderRegistry:
         with pytest.raises(ConfigurationError, match="Unknown VAD provider"):
             registry._create_vad("unknown_engine")
 
+    def test_asr_max_concurrency_settings(self) -> None:
+        # Default is safe value 1
+        s_default = Settings()
+        assert s_default.asr_max_concurrency == 1
+
+        # Valid override
+        s_override = Settings(asr_max_concurrency=4)
+        assert s_override.asr_max_concurrency == 4
+
+        # Invalid value 0 rejected
+        with pytest.raises(ValueError, match="ASR_MAX_CONCURRENCY must be at least 1"):
+            Settings(asr_max_concurrency=0)
+
+        # Invalid negative value rejected
+        with pytest.raises(ValueError, match="ASR_MAX_CONCURRENCY must be at least 1"):
+            Settings(asr_max_concurrency=-1)
+
     def test_future_provider_raises_not_implemented_in_stage1(self) -> None:
         settings_asr = Settings(asr_provider="faster_whisper")
         reg_asr = ProviderRegistry(settings_asr)

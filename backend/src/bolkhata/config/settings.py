@@ -44,6 +44,7 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------------------ providers
     asr_provider: str = "mock"
+    asr_max_concurrency: int = 1
     tts_provider: str = "mock"
     llm_provider: str = "mock"
     vad_provider: str | None = None
@@ -56,6 +57,13 @@ class Settings(BaseSettings):
         if norm not in allowed:
             raise ValueError(f"ASR_PROVIDER must be one of {allowed}. Got: {v!r}")
         return norm
+
+    @field_validator("asr_max_concurrency")
+    @classmethod
+    def _validate_asr_max_concurrency(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"ASR_MAX_CONCURRENCY must be at least 1. Got: {v}")
+        return v
 
     @field_validator("tts_provider")
     @classmethod
