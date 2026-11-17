@@ -627,9 +627,11 @@ class TestProviderRegistry:
             await registry.initialize_all()
 
         assert not registry.is_initialized
-        # Failed providers are retained in _initialized_providers for retry
-        assert tts in registry._initialized_providers
-        assert asr in registry._initialized_providers
+        # Failed providers are retained in _initialized_providers in canonical startup order for retry
+        assert [id(p) for p in registry._initialized_providers] == [
+            id(asr),
+            id(tts),
+        ]
 
     @pytest.mark.asyncio
     async def test_shutdown_failure_followed_by_successful_retry(self) -> None:
@@ -696,3 +698,170 @@ class TestProviderRegistry:
         await registry.shutdown_all()
         assert not registry.is_initialized
         assert registry._initialized_providers == []
+
+    @pytest.mark.asyncio
+    async def test_multiple_providers_fail_shutdown_retried_in_reverse_startup_order(
+        self,
+    ) -> None:
+        """
+        Verify that when multiple providers fail during normal shutdown:
+        1. The initial shutdown attempts all providers in reverse startup order (VAD -> LLM -> TTS -> ASR).
+        2. The successfully shut down providers are not retried.
+        3. The retry attempts only the failed providers, in reverse startup order (not startup order).
+        """
+        settings = Settings(vad_provider="mock")
+        registry = ProviderRegistry(settings)
+        await registry.initialize_all()
+
+        call_events: list[str] = []
+
+        fail_llm = True
+        fail_asr = True
+
+        orig_asr_sd = registry.asr.shutdown
+        orig_tts_sd = registry.tts.shutdown
+        orig_llm_sd = registry.llm.shutdown
+        orig_vad_sd = registry.vad.shutdown  # type: ignore[union-attr]
+
+        async def logging_vad_sd() -> None:
+            call_events.append("vad_1")
+            await orig_vad_sd()
+
+        async def logging_llm_sd() -> None:
+            call_events.append("llm_1" if fail_llm else "llm_2")
+            if fail_llm:
+                raise RuntimeError("LLM shutdown transient failure")
+            await orig_llm_sd()
+
+        async def logging_tts_sd() -> None:
+            call_events.append("tts_1")
+            await orig_tts_sd()
+
+        async def logging_asr_sd() -> None:
+            call_events.append("asr_1" if fail_asr else "asr_2")
+            if fail_asr:
+                raise RuntimeError("ASR shutdown transient failure")
+            await orig_asr_sd()
+
+        registry.vad.shutdown = logging_vad_sd  # type: ignore[union-attr,method-assign]
+        registry.llm.shutdown = logging_llm_sd  # type: ignore[method-assign]
+        registry.tts.shutdown = logging_tts_sd  # type: ignore[method-assign]
+        registry.asr.shutdown = logging_asr_sd  # type: ignore[method-assign]
+
+        # 1. First shutdown attempt: all 4 are attempted in reverse startup order
+        with pytest.raises(RuntimeError, match="LLM shutdown transient failure"):
+            await registry.shutdown_all()
+
+        # Observed order on first shutdown: VAD -> LLM -> TTS -> ASR
+        assert call_events == ["vad_1", "llm_1", "tts_1", "asr_1"]
+
+        # VAD and TTS succeeded and must NOT be retained
+        # ASR and LLM failed and must be retained in canonical startup order: [ASR, LLM]
+        assert [id(p) for p in registry._initialized_providers] == [
+            id(registry.asr),
+            id(registry.llm),
+        ]
+        assert not registry.is_initialized
+
+        # 2. Retry shutdown: fix transient errors
+        fail_llm = False
+        fail_asr = False
+        call_events.clear()
+
+        await registry.shutdown_all()
+
+        # Observed order on retry: LLM -> ASR (reverse startup order, NOT startup order!)
+        assert call_events == ["llm_2", "asr_2"]
+        # VAD and TTS were not retried
+        assert "vad_1" not in call_events
+        assert "vad_2" not in call_events
+        assert "tts_1" not in call_events
+        assert "tts_2" not in call_events
+
+        # Clean final state
+        assert registry._initialized_providers == []
+        assert not registry.is_initialized
+
+    @pytest.mark.asyncio
+    async def test_multiple_providers_fail_startup_rollback_retried_in_reverse_startup_order(
+        self,
+    ) -> None:
+        """
+        Verify that when multiple providers fail during startup rollback:
+        1. Initial rollback attempts all attempted providers in reverse startup order.
+        2. Retained failed providers are stored in canonical startup order.
+        3. A subsequent shutdown_all() retries them in reverse startup order.
+        4. Successfully rolled-back providers are not retried.
+        """
+        settings = Settings(vad_provider="mock")
+        registry = ProviderRegistry(settings)
+
+        call_events: list[str] = []
+
+        fail_llm_shutdown = True
+        fail_asr_shutdown = True
+
+        class FailingVAD(MockVADProvider):
+            async def initialize(self) -> None:
+                raise RuntimeError("VAD initialization failed")
+
+        class LoggingASR(MockASRProvider):
+            async def shutdown(self) -> None:
+                call_events.append("asr_1" if fail_asr_shutdown else "asr_2")
+                if fail_asr_shutdown:
+                    raise RuntimeError("ASR rollback failure")
+                await super().shutdown()
+
+        class LoggingTTS(MockTTSProvider):
+            async def shutdown(self) -> None:
+                call_events.append("tts_1")
+                await super().shutdown()
+
+        class LoggingLLM(MockLLMProvider):
+            async def shutdown(self) -> None:
+                call_events.append("llm_1" if fail_llm_shutdown else "llm_2")
+                if fail_llm_shutdown:
+                    raise RuntimeError("LLM rollback failure")
+                await super().shutdown()
+
+        asr = LoggingASR()
+        tts = LoggingTTS()
+        llm = LoggingLLM()
+        vad = FailingVAD()
+
+        registry._asr = asr
+        registry._tts = tts
+        registry._llm = llm
+        registry._vad = vad
+
+        # 1. Startup fails at VAD
+        with pytest.raises(RuntimeError, match="VAD initialization failed"):
+            await registry.initialize_all()
+
+        # VAD failed in initialize, so attempted_providers in startup order is: [asr, tts, llm, vad]
+        # Rollback order is: vad -> llm -> tts -> asr
+        # vad (MockVADProvider) shutdown succeeds
+        # llm shutdown fails (appends llm_1)
+        # tts shutdown succeeds (appends tts_1)
+        # asr shutdown fails (appends asr_1)
+        assert call_events == ["llm_1", "tts_1", "asr_1"]
+
+        # Retained providers must be stored in canonical startup order: [asr, llm]
+        assert [id(p) for p in registry._initialized_providers] == [
+            id(asr),
+            id(llm),
+        ]
+        assert not registry.is_initialized
+
+        # 2. Retry shutdown
+        fail_llm_shutdown = False
+        fail_asr_shutdown = False
+        call_events.clear()
+
+        await registry.shutdown_all()
+
+        # Retry must execute in reverse startup order: llm then asr
+        assert call_events == ["llm_2", "asr_2"]
+
+        assert registry._initialized_providers == []
+        assert not registry.is_initialized

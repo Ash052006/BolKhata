@@ -173,19 +173,21 @@ class ProviderRegistry:
                 self._initialized = True
             except BaseException:
                 # Failure rollback: clean up all attempted providers in reverse order
-                failed_cleanups: list[Any] = []
+                failed_ids: set[int] = set()
                 for prov in reversed(attempted_providers):
                     try:
                         await prov.shutdown()
                     except Exception as clean_err:
-                        failed_cleanups.append(prov)
+                        failed_ids.add(id(prov))
                         logger.error(
                             "provider_rollback_failed",
                             provider=type(prov).__name__,
                             error=str(clean_err),
                         )
-                # Retain any providers that failed shutdown for future retry
-                self._initialized_providers = failed_cleanups
+                # Retain any providers that failed shutdown in canonical startup order for retry
+                self._initialized_providers = [
+                    prov for prov in attempted_providers if id(prov) in failed_ids
+                ]
                 self._initialized = False
                 # Bare raise preserves the original initialization error and full traceback
                 raise
@@ -195,35 +197,39 @@ class ProviderRegistry:
         Shut down all initialized providers in reverse order.
 
         Idempotent and concurrency-safe.
-        Tracks which providers succeed and retains failed providers so subsequent
-        shutdown calls can retry them.
+        Tracks which providers succeed and retains failed providers in original
+        startup order so subsequent shutdown calls retry them in reverse startup order.
         """
         async with self._lock:
             if not self._initialized and not self._initialized_providers:
                 return
 
-            targets: list[Any] = []
-            if self._initialized_providers:
-                for p in reversed(self._initialized_providers):
-                    if p not in targets:
-                        targets.append(p)
-            else:
-                for p in (self._vad, self._llm, self._tts, self._asr):
-                    if p is not None and p not in targets:
-                        targets.append(p)
+            source_providers = (
+                self._initialized_providers
+                if self._initialized_providers
+                else [p for p in (self._asr, self._tts, self._llm, self._vad) if p is not None]
+            )
 
-            if not targets:
+            unique_source: list[Any] = []
+            seen_ids: set[int] = set()
+            for p in source_providers:
+                if id(p) not in seen_ids:
+                    seen_ids.add(id(p))
+                    unique_source.append(p)
+
+            if not unique_source:
                 self._initialized = False
                 return
 
-            failed_providers: list[Any] = []
+            targets = list(reversed(unique_source))
+            failed_ids: set[int] = set()
             errors: list[Exception] = []
 
             for provider in targets:
                 try:
                     await provider.shutdown()
                 except Exception as err:
-                    failed_providers.append(provider)
+                    failed_ids.add(id(provider))
                     errors.append(err)
                     logger.error(
                         "provider_shutdown_failed",
@@ -231,9 +237,9 @@ class ProviderRegistry:
                         error=str(err),
                     )
 
-            # Retain providers that failed shutdown for retry
-            self._initialized_providers = failed_providers
-            if failed_providers:
+            # Retain providers that failed shutdown in canonical startup order for retry
+            self._initialized_providers = [p for p in unique_source if id(p) in failed_ids]
+            if failed_ids:
                 # Do not report successful shutdown if a provider failed to release its resources
                 self._initialized = False
                 raise errors[0]
