@@ -246,7 +246,7 @@ class BaseProvider(ABC):
 ```
 
 ### 1. `ASRProvider` Contract (`bolkhata.asr.base`)
-- **Input:** Raw signed 16-bit little-endian mono 16 kHz PCM bytes (`bytes`) or chunked stream (`AsyncIterable[bytes]`).
+- **Input:** Raw signed 16-bit little-endian mono 16 kHz PCM bytes (`bytes`) or chunked stream (`AsyncIterable[bytes]`), optional `language: str | None`, and optional `initial_prompt: str | None = None` for vocabulary conditioning.
 - **Output:** Immutable `ASRResult` dataclass:
   ```python
   @dataclass(frozen=True)
@@ -254,16 +254,21 @@ class BaseProvider(ABC):
       word: str
       start_ms: float
       end_ms: float
-      confidence: float
+      confidence: float | None = None
 
   @dataclass(frozen=True)
   class ASRResult:
       text: str
       language: str
-      confidence: float
+      confidence: float | None
+      duration_ms: float
       words: tuple[WordTiming, ...] = ()
   ```
-- **Invariants:** `words` is deeply immutable (`tuple[WordTiming, ...]`), preventing accidental in-place mutation by downstream pipeline filters.
+- **Invariants:**
+  - `confidence` is `float | None`. Numeric values are restricted to documented runtime probabilities; uncalibrated scores or missing probabilities are represented strictly as `None`.
+  - Empty audio input returns an empty result: `ASRResult(text="", language=..., confidence=None, duration_ms=0.0, words=())`.
+  - `words` is deeply immutable (`tuple[WordTiming, ...]`), preventing accidental in-place mutation by downstream pipeline filters.
+  - `initial_prompt` is contextual vocabulary tokens passed to conditioning layers; it does not alter audio semantics.
 
 ### 2. `TTSProvider` Contract (`bolkhata.tts.base`)
 - **Input:** Plain text string (`str`), voice ID (`str | None`), speaking rate multiplier (`float`).

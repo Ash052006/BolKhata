@@ -288,17 +288,38 @@ def pcm_to_float32(audio_bytes: bytes) -> array.array[float]:
 ```
 
 ### Documentation Milestone: Permanent Engineering Knowledge Base & Deep-Dive Manuals
-*Commits: `b065ab8` (initial progress guide), subsequent documentation commit*
+*Commits: `b065ab8`, `b6b7461`, `b261680`*
 
 To preserve engineering rationale, accelerate onboarding, and provide comprehensive interview defense materials, we created a four-pillar documentation knowledge base under `docs/`:
 1. [docs/README.md](README.md): Documentation index, navigation guide, and source-of-truth precedence hierarchy.
-2. [docs/decision.md](decision.md): Central architectural decision log (22 distinct decisions from S0 to S1) detailing context, choices, alternatives rejected, trade-offs, consequences, and interview defense angles.
+2. [docs/decision.md](decision.md): Central architectural decision log detailing context, choices, alternatives rejected, trade-offs, consequences, and interview defense angles.
 3. [docs/architecture-deep-dive.md](architecture-deep-dive.md): Exhaustive technical reference detailing internal component mechanics, sequence flows, state machines, provider registry rollbacks, float32 audio normalization math, and failure recovery matrices.
-4. [docs/interview-guide.md](interview-guide.md): In-depth interview defense manual featuring 30s/1m/3m/5m pitches, grounded answers for 17+ deep technical questions, walkthroughs of critical interviewer challenges, and preparation checklists.
+4. [docs/interview-guide.md](interview-guide.md): In-depth interview defense manual featuring 30s/1m/3m/5m pitches, grounded answers for technical questions, walkthroughs of critical interviewer challenges, and preparation checklists.
 
-Additionally, `agent.md` was updated with a mandatory **Documentation Maintenance Contract** binding future coding agents to update these records after every implementation task.
+Additionally, `agent.md` was updated with a mandatory **Documentation Maintenance Contract** binding future coding agents to update these records after every implementation task, and all document links were made repository-relative for portable navigation across clones and GitHub.
 
-> **Note on Scope:** No application code, provider contracts, or database schemas were modified during this documentation milestone. All existing 96 tests continue to pass with zero regressions.
+### S1 Stage 2 (Prompt 1 Extension): ASR Runtime Configuration, Vocabulary Biasing Contract & Honest Confidence
+*Commit: Pending Prompt 1 commit*
+
+To prepare the codebase for concrete Faster-Whisper and MLX-Whisper adapters without premature model downloads, we hardened the speech contracts, configuration, and packaging:
+- **Honest Confidence Contract:** Changed `ASRResult.confidence` and `WordTiming.confidence` to `float | None`. Numeric values are permitted strictly when originating from documented runtime probabilities. Uncalibrated beam-search log probabilities (`avg_logprob`) are not converted to probabilities via `exp()`, and missing confidences are never masked with `1.0`. `None` explicitly signals unavailable confidence. Empty audio returns an empty result with `confidence=None`.
+- **Vocabulary-Prompt Support:** Extended `ASRProvider.transcribe()` to accept optional `initial_prompt: str | None = None`. This allows passing contextual domain tokens (*Sharma ji, udhaar, jama, chawal*) to the Whisper decoder's cross-attention layers, conditioning acoustic transcription without altering audio semantics.
+- **Provider-Specific ASR Settings:** Added strongly-typed Pydantic settings in `bolkhata.config.settings:Settings`:
+  - `asr_faster_whisper_model_id: str = "Systran/faster-whisper-small"`
+  - `asr_faster_whisper_model_revision: str | None = "536b0662742c02347bc0e980a01041f333bce120"` (full 40-character hex commit verified upstream) <!-- pragma: allowlist secret -->
+  - `asr_mlx_whisper_model_id: str = "mlx-community/whisper-small-mlx"`
+  - `asr_mlx_whisper_model_revision: str | None = "45f3915923c7a79a5a5b5a7d909d39aeb0e5630e"` (full 40-character hex commit verified upstream) <!-- pragma: allowlist secret -->
+  - `asr_device: str = "auto"` (validated against `auto`, `cpu`, `cuda`)
+  - `asr_compute_type: str = "auto"` (validated against `auto`, `int8`, `float16`, `int8_float16`)
+  - `asr_model_dir: str | None = None`
+  - `asr_offline_mode: bool = False`
+  - `asr_max_duration_seconds: float = 30.0` (validated positive finite number)
+  - Preserved `asr_max_concurrency: int = 1` ($\ge 1$).
+- **Isolated Multi-Platform Optional Dependencies:** Added optional extras `faster-whisper = ["faster-whisper==1.2.1"]` and `mlx-whisper = ["mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'"]` in `pyproject.toml`. Resolved reproducibly in `uv.lock`. Base virtual environment and CI install zero heavy speech libraries.
+- **Unit Test Coverage:** Added `tests/unit/test_settings_asr.py` and updated `tests/unit/test_providers_mock.py`, expanding the passing test suite from 96 to 134 hermetic tests.
+
+> **Note on Scope:** Neither Faster-Whisper nor MLX-Whisper adapters were implemented in this prompt, and zero model weights were downloaded. All tests execute completely offline in milliseconds.
+
 
 
 ---
@@ -588,12 +609,13 @@ Interview Topics:
 ## Section G — Current Status & Next Steps
 
 ### Active Component Status
-*Verified as of Commit `863b07d`*
+*Verified as of S1 Stage 2 Prompt 1*
 
 - **S0 Production Foundation:** **Completed** (Monorepo, FastAPI, async DB, logging redaction, Alembic, Docker, CI).
 - **S0 Tooling & Secret Remediation:** **Completed** (Reproducible pre-commit, scanner allowlists, clean linting).
 - **S1 Stage 1 Provider Foundation:** **Completed** (Abstract contracts, deterministic mocks, thread-safe DI registry, reverse-order lifecycle rollbacks).
 - **S1 Stage 2 (Prompt 1) Audio Utilities & ASR Settings:** **Completed** (16kHz PCM utilities, float32 conversion, duration calculations, concurrency bounds).
+- **S1 Stage 2 (Prompt 1 Extension) ASR Contracts & Config:** **Completed** (Honest confidence semantics `float | None`, `initial_prompt` pass-through, validated runtime settings, optional dependency groups, 134 passing tests).
 - **Faster-Whisper Adapter:** *Not Implemented (Planned next)*.
 - **MLX-Whisper Adapter:** *Not Implemented (Planned next)*.
 - **Real Speech Inference & Evaluation:** *Not Implemented (Planned next)*.
@@ -619,9 +641,9 @@ Interview Topics:
 
 | Metric / Verification Gate | Latest Verified Result | What It Proves | Known Limitations |
 |---|---|---|---|
-| **Backend Unit & Integration Tests** | `96 passed in 0.17s` | All 96 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, and PCM audio conversion. | Tests use deterministic mocks; real neural inference models are not yet tested. |
+| **Backend Unit & Integration Tests** | `134 passed in 0.18s` | All 134 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, and ASR settings validation. | Tests use deterministic mocks; real neural inference models are tested in separate evaluation suites. |
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
-| **Ruff Format Check** | `33 files already formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
+| **Ruff Format Check** | `34 files already formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
 | **Mypy Static Type Analysis** | `Success: no issues found in 23 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
 | **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 271ms` | React TypeScript compilation and production bundle build succeed with zero errors. | UI is currently at S0 baseline; push-to-talk voice controls are not yet wired. |
 | **Pre-Commit Checks (Two Passes)** | `Passed (all 11 hooks passed twice)` | Formatting, JSON/TOML validation, large file checks, and branch protection are completely reproducible and idempotent. | Verifies static file integrity. |
@@ -645,7 +667,9 @@ The following table records the verifiable Git commit history on the repository:
 | `516e03a` | `feat/s1-provider-foundation` | `fix(s1): preserve provider order across cleanup retries` | Implemented canonical startup-order invariant and identity-based tracking for reverse cleanup. |
 | `863b07d` | `feat/s1-provider-foundation` | `feat(s1): add PCM utilities and ASR settings` | Created `bolkhata.asr.common` (16kHz s16le PCM to float32), `asr_max_concurrency` setting, and 14 new tests. |
 | `b065ab8` | `feat/s1-provider-foundation` | `docs: add engineering progress and interview guide` | Established `docs/progress.md` living engineering journal and interview defense manual. |
-| *(Pending)* | `feat/s1-provider-foundation` | `docs: add engineering knowledge base and deep dive` | Created `docs/decision.md`, `docs/architecture-deep-dive.md`, `docs/README.md`, and updated `agent.md`. |
+| `b6b7461` | `feat/s1-provider-foundation` | `docs: add engineering knowledge base and deep dive` | Created `docs/decision.md`, `docs/architecture-deep-dive.md`, `docs/README.md`, and updated `agent.md`. |
+| `b261680` | `feat/s1-provider-foundation` | `docs: fix repository-relative documentation links` | Made all documentation file links portable using repository-relative Markdown paths. |
+| *(Pending)* | `feat/s1-provider-foundation` | `feat(s1): define ASR runtime config and confidence semantics` | Honest confidence semantics (`float \| None`), vocabulary-prompt contract, validated ASR runtime settings, platform-specific optional dependencies, and 38 new unit tests. |
 
 ---
 

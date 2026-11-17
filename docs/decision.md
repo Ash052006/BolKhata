@@ -48,6 +48,9 @@ It captures the architectural, technological, and engineering trade-offs made ac
   - [DEC-0020: Mathematical Normalization Boundaries for Float32 Samples](#dec-0020-mathematical-normalization-boundaries-for-float32-samples)
   - [DEC-0021: Strict Byte Alignment and Duration Validation](#dec-0021-strict-byte-alignment-and-duration-validation)
   - [DEC-0022: Bounded ASR Concurrency Defaulting to Unity](#dec-0022-bounded-asr-concurrency-defaulting-to-unity)
+  - [DEC-0023: Honest Optional Confidence Contract (float | None)](#dec-0023-honest-optional-confidence-contract-float--none)
+  - [DEC-0024: Vocabulary-Prompt Support (initial_prompt) for Contextual Biasing](#dec-0024-vocabulary-prompt-support-initial_prompt-for-contextual-biasing)
+  - [DEC-0025: Platform-Specific Optional Dependency Isolation for AI Runtimes](#dec-0025-platform-specific-optional-dependency-isolation-for-ai-runtimes)
 
 ---
 
@@ -839,3 +842,108 @@ Verified by `test_asr_max_concurrency_settings` in `tests/unit/test_providers_mo
 **Interview angle:**
 *Challenge:* Why set concurrency to 1 by default?
 *Defense:* Whisper models are compute-bound matrix engines that internally parallelize across CPU cores. Running two concurrent inferences on a 4-core machine doesn't make it 2x faster—it causes cache thrashing and doubles latency for both users. Serializing inference with a semaphore maximizes throughput and guarantees deterministic latency.
+
+---
+
+### DEC-0023: Honest Optional Confidence Contract (float | None)
+- **Date:** 2026-11-17
+- **Stage:** S1 Stage 2
+- **Status:** Implemented Decision
+- **Related files:** `backend/src/bolkhata/asr/base.py`, `backend/src/bolkhata/asr/mock.py`, `tests/unit/test_providers_mock.py`
+- **Related commit:** Pending S1 Stage 2 Prompt 1 commit
+
+**Context:**
+Many ASR models (such as Whisper) produce sequence token log-probabilities (`avg_logprob`), not well-calibrated posterior probabilities. Converting `avg_logprob` using `math.exp()` or substituting missing confidences with arbitrary placeholders like `1.0` falsely implies statistical certainty, misleading downstream financial risk gates.
+
+**Decision:**
+Define `ASRResult.confidence` and `WordTiming.confidence` as `float | None`. Numeric values are permitted strictly when derived from documented runtime probability fields. When unavailable, the value must be `None`. Mock providers must not invent confidence numbers unless explicitly provided by test fixtures. Empty audio returns `confidence=None`.
+
+**Alternatives considered:**
+1. *Exponentiating `avg_logprob`:* Incorrect mathematical interpretation of unnormalized sequence-to-sequence beam search scores.
+2. *Defaulting to 1.0:* Masks absence of confidence and gives false assurance on hallucinated tokens.
+
+**Why this approach:**
+Enforces honest confidence semantics throughout the pipeline. Downstream financial dialogue engines only make safety decisions when calibrated probability is genuinely present.
+
+**Trade-offs:**
+Downstream consumers must handle `None` gracefully.
+
+**Consequences:**
+Guarantees transparent data contracts and avoids synthetic certainty in financial flows.
+
+**Evidence:**
+Verified by `test_word_timing_and_asr_result_optional_confidence_semantics` and `test_mock_asr_transcribe_empty_audio_returns_empty_result` in `tests/unit/test_providers_mock.py`.
+
+**Interview angle:**
+*Challenge:* Why not just exponentiate Whisper's average log probability to get confidence?
+*Defense:* In autoregressive encoder-decoder models, beam search log probabilities are uncalibrated and sequence-length dependent. Exponentiating them does not yield a true posterior probability. Reporting `None` is honest engineering; inventing false confidence creates severe risk in a financial ledger.
+
+---
+
+### DEC-0024: Vocabulary-Prompt Support (initial_prompt) for Contextual Biasing
+- **Date:** 2026-11-17
+- **Stage:** S1 Stage 2
+- **Status:** Implemented Decision
+- **Related files:** `backend/src/bolkhata/asr/base.py`, `backend/src/bolkhata/asr/mock.py`, `tests/unit/test_providers_mock.py`
+- **Related commit:** Pending S1 Stage 2 Prompt 1 commit
+
+**Context:**
+Indian kirana store interactions feature specialized vocabulary: customer surnames (*Sharma, Verma, Gupta*), commodities (*chawal, dal, atta, cheeni*), and transaction terms (*udhaar, jama, khata*). Standard multilingual Whisper often mishears these phonetic terms without acoustic context.
+
+**Decision:**
+Extend the `ASRProvider.transcribe()` contract to accept an optional `initial_prompt: str | None = None` parameter. The prompt supplies contextual vocabulary tokens directly to the speech engine without altering audio semantics.
+
+**Alternatives considered:**
+1. *Fine-tuning acoustic models:* Expensive, inflexible, prone to catastrophic forgetting of English terms in Hinglish.
+2. *Post-ASR fuzzy spell-checking alone:* Fails if phonetically similar words are transcribed completely differently by the acoustic model.
+
+**Why this approach:**
+Whisper's decoder conditioning on `initial_prompt` is a proven, zero-overhead technique to bias attention towards known vocabulary prior to transcription.
+
+**Trade-offs:**
+The caller must extract or provide relevant vocabulary (e.g. from the shop's local customer address book).
+
+**Consequences:**
+Enables Milestone F1 (Vocabulary Biasing) cleanly without modifying core provider contracts.
+
+**Evidence:**
+Verified by `test_mock_asr_transcribe_initial_prompt_pass_through` in `tests/unit/test_providers_mock.py`.
+
+**Interview angle:**
+*Challenge:* What is the difference between an initial prompt in Whisper and an LLM prompt?
+*Defense:* An LLM prompt is an instruction directing the model to generate a response. In Whisper, `initial_prompt` acts as preceding context tokens for the decoder, conditioning the cross-attention layers toward specific vocabulary spellings without instructing the model to change what was actually spoken.
+
+---
+
+### DEC-0025: Platform-Specific Optional Dependency Isolation for AI Runtimes
+- **Date:** 2026-11-17
+- **Stage:** S1 Stage 2
+- **Status:** Implemented Decision
+- **Related files:** `backend/pyproject.toml`, `backend/uv.lock`, `tests/unit/test_settings_asr.py`
+- **Related commit:** Pending S1 Stage 2 Prompt 1 commit
+
+**Context:**
+BolKhata targets heterogeneous hardware: Windows RTX 3050 (requiring CTranslate2 / CUDA) and Apple Silicon Mac (requiring Apple MLX / Metal). Installing MLX on Windows fails to build; installing CUDA/PyTorch bloats Mac and CI runners.
+
+**Decision:**
+Configure `faster-whisper==1.2.1` and `mlx-whisper==0.4.3` as optional dependency extras in `pyproject.toml`. Guard `mlx-whisper` with environment marker `sys_platform == 'darwin' and platform_machine == 'arm64'`. Lock dependencies reproducibly in `uv.lock`. Keep the default development and CI environment 100% free of heavy speech runtimes.
+
+**Alternatives considered:**
+1. *Placing all runtimes in base dependencies:* Fails cross-platform installation and bloats CI container builds.
+2. *Separate requirements-windows.txt and requirements-mac.txt:* Loses unified lockfile reproducibility and dependency graph validation.
+
+**Why this approach:**
+`uv` resolves multi-platform dependency graphs cleanly into a single lockfile while allowing target platforms to install only what they support via `uv sync --extra faster-whisper` or `uv sync --extra mlx-whisper`.
+
+**Trade-offs:**
+Target machines must specify the extra when installing dependencies.
+
+**Consequences:**
+CI remains hermetic and sub-second fast; real runtimes are installed only on dedicated hardware nodes.
+
+**Evidence:**
+Verified by `test_package_imports_without_speech_runtimes` in `tests/unit/test_settings_asr.py`.
+
+**Interview angle:**
+*Challenge:* How do you manage platform-specific AI dependencies in a monorepo without breaking CI?
+*Defense:* We use PEP 508 environment markers (`sys_platform == 'darwin' and platform_machine == 'arm64'`) and optional dependency extras in `pyproject.toml`. Standard CI installs zero ML packages, testing contracts with deterministic mocks. Hardware nodes install their respective extra (`--extra faster-whisper` or `--extra mlx-whisper`), keeping environments clean and reproducible.

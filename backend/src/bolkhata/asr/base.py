@@ -16,7 +16,7 @@ class WordTiming:
     word: str
     start_ms: float
     end_ms: float
-    confidence: float = 1.0
+    confidence: float | None = None
 
 
 @dataclass(frozen=True)
@@ -25,11 +25,13 @@ class ASRResult:
     Immutable result of speech transcription.
 
     Words is an immutable tuple of WordTiming objects.
+    Confidence is an optional float in [0.0, 1.0] when supplied by a documented
+    runtime probability field; None indicates confidence is unavailable.
     """
 
     text: str
     language: str
-    confidence: float
+    confidence: float | None
     duration_ms: float
     words: tuple[WordTiming, ...] = ()
 
@@ -82,8 +84,26 @@ class ASRProvider(ABC):
         pass
 
     @abstractmethod
-    async def transcribe(self, audio_bytes: bytes, language: str | None = None) -> ASRResult:
-        """Transcribe a complete 16kHz mono PCM buffer."""
+    async def transcribe(
+        self,
+        audio_bytes: bytes,
+        language: str | None = None,
+        initial_prompt: str | None = None,
+    ) -> ASRResult:
+        """
+        Transcribe a complete 16kHz mono PCM buffer.
+
+        Args:
+            audio_bytes: Raw 16kHz mono signed 16-bit little-endian PCM bytes.
+            language: Optional language code (e.g. 'hi', 'en'). If None, the engine
+                will perform automatic language detection where supported.
+            initial_prompt: Optional contextual vocabulary prompt to bias transcription
+                (e.g. kirana items, customer names). Does not alter audio semantics.
+
+        Returns:
+            ASRResult containing transcription text, language, optional confidence,
+            duration in milliseconds, and word timings.
+        """
         pass
 
     @abstractmethod

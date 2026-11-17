@@ -22,7 +22,7 @@ class MockASRProvider(ASRProvider):
         self,
         canned_text: str = "Sharma ji ko do sau pachaas udhaar",
         language: str = "hi",
-        confidence: float = 0.95,
+        confidence: float | None = None,
         duration_ms: float = 1200.0,
         words: tuple[WordTiming, ...] | None = None,
     ) -> None:
@@ -32,13 +32,13 @@ class MockASRProvider(ASRProvider):
         self.duration_ms = duration_ms
         if words is None:
             self.words: tuple[WordTiming, ...] = (
-                WordTiming(word="Sharma", start_ms=0.0, end_ms=300.0, confidence=0.98),
-                WordTiming(word="ji", start_ms=310.0, end_ms=450.0, confidence=0.99),
-                WordTiming(word="ko", start_ms=460.0, end_ms=550.0, confidence=0.97),
-                WordTiming(word="do", start_ms=560.0, end_ms=700.0, confidence=0.96),
-                WordTiming(word="sau", start_ms=710.0, end_ms=850.0, confidence=0.95),
-                WordTiming(word="pachaas", start_ms=860.0, end_ms=1050.0, confidence=0.94),
-                WordTiming(word="udhaar", start_ms=1060.0, end_ms=1200.0, confidence=0.95),
+                WordTiming(word="Sharma", start_ms=0.0, end_ms=300.0, confidence=confidence),
+                WordTiming(word="ji", start_ms=310.0, end_ms=450.0, confidence=confidence),
+                WordTiming(word="ko", start_ms=460.0, end_ms=550.0, confidence=confidence),
+                WordTiming(word="do", start_ms=560.0, end_ms=700.0, confidence=confidence),
+                WordTiming(word="sau", start_ms=710.0, end_ms=850.0, confidence=confidence),
+                WordTiming(word="pachaas", start_ms=860.0, end_ms=1050.0, confidence=confidence),
+                WordTiming(word="udhaar", start_ms=1060.0, end_ms=1200.0, confidence=confidence),
             )
         else:
             self.words = words
@@ -48,6 +48,8 @@ class MockASRProvider(ASRProvider):
         self.warmup_calls: int = 0
         self.shutdown_calls: int = 0
         self.transcribe_calls: int = 0
+        self.last_initial_prompt: str | None = None
+        self.initial_prompts: list[str | None] = []
         self.is_initialized: bool = False
         self.is_warmed_up: bool = False
         self.is_shutdown: bool = False
@@ -61,10 +63,28 @@ class MockASRProvider(ASRProvider):
         self.warmup_calls += 1
         self.is_warmed_up = True
 
-    async def transcribe(self, audio_bytes: bytes, language: str | None = None) -> ASRResult:
+    async def transcribe(
+        self,
+        audio_bytes: bytes,
+        language: str | None = None,
+        initial_prompt: str | None = None,
+    ) -> ASRResult:
         self.transcribe_calls += 1
+        self.last_initial_prompt = initial_prompt
+        self.initial_prompts.append(initial_prompt)
         # Yield control to event loop to prove non-blocking async execution
         await asyncio.sleep(0)
+
+        # Empty audio returns empty result with confidence=None
+        if not audio_bytes:
+            return ASRResult(
+                text="",
+                language=language or self.language,
+                confidence=None,
+                duration_ms=0.0,
+                words=(),
+            )
+
         return ASRResult(
             text=self.canned_text,
             language=language or self.language,

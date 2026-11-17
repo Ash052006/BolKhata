@@ -67,10 +67,76 @@ class TestASRProviderContract:
         assert isinstance(result, ASRResult)
         assert result.text == "Sharma ji do sau udhaar"
         assert result.language == "hi"
-        assert result.confidence > 0.0
+        # Honest confidence: unavailable by default unless supplied by fixture
+        assert result.confidence is None
         assert isinstance(result.words, tuple)
         assert len(result.words) > 0
         assert all(isinstance(w, WordTiming) for w in result.words)
+        assert all(w.confidence is None for w in result.words)
+
+    @pytest.mark.asyncio
+    async def test_mock_asr_transcribe_with_explicit_confidence_fixture(self) -> None:
+        provider = MockASRProvider(
+            canned_text="Sharma ji do sau udhaar",
+            confidence=0.95,
+        )
+        result = await provider.transcribe(b"\x00" * 3200)
+
+        assert result.confidence == 0.95
+        assert all(w.confidence == 0.95 for w in result.words)
+
+    @pytest.mark.asyncio
+    async def test_mock_asr_transcribe_empty_audio_returns_empty_result(self) -> None:
+        provider = MockASRProvider(confidence=0.95)
+        result = await provider.transcribe(b"")
+
+        assert result.text == ""
+        assert result.confidence is None
+        assert result.duration_ms == 0.0
+        assert result.words == ()
+
+    @pytest.mark.asyncio
+    async def test_mock_asr_transcribe_initial_prompt_pass_through(self) -> None:
+        provider = MockASRProvider()
+        test_prompt = "Sharma ji, udhaar, chawal, kirana"
+        result = await provider.transcribe(
+            b"\x00" * 1600,
+            language="hi",
+            initial_prompt=test_prompt,
+        )
+
+        assert isinstance(result, ASRResult)
+        assert provider.last_initial_prompt == test_prompt
+        assert provider.initial_prompts == [test_prompt]
+
+    @pytest.mark.asyncio
+    async def test_word_timing_and_asr_result_optional_confidence_semantics(self) -> None:
+        # WordTiming with available and unavailable confidence
+        wt_none = WordTiming(word="namaste", start_ms=0.0, end_ms=250.0)
+        assert wt_none.confidence is None
+
+        wt_val = WordTiming(word="sharma", start_ms=250.0, end_ms=500.0, confidence=0.88)
+        assert wt_val.confidence == 0.88
+
+        # ASRResult with available and unavailable confidence
+        res_none = ASRResult(
+            text="namaste",
+            language="hi",
+            confidence=None,
+            duration_ms=250.0,
+            words=(wt_none,),
+        )
+        assert res_none.confidence is None
+
+        res_val = ASRResult(
+            text="sharma",
+            language="hi",
+            confidence=0.88,
+            duration_ms=250.0,
+            words=(wt_val,),
+        )
+        assert res_val.confidence == 0.88
+        assert res_val.words[0].confidence == 0.88
 
     @pytest.mark.asyncio
     async def test_asr_result_immutable_and_coerces_tuple(self) -> None:

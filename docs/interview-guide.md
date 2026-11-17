@@ -101,6 +101,24 @@ We avoided NumPy because NumPy is a large 50+ MB C-extension dependency. Using s
 6. **Relevant files/tests:** `tests/unit/test_asr_common.py` (specifically `test_normalization_boundaries`).
 7. **What not to claim:** Do not claim that standard-library `array` generator division is faster than NumPy on a 1-hour audio file; on short 3-second kirana voice clips, the execution time is sub-millisecond, making dependency reduction the superior trade-off.
 
+### Q-D2: Why does BolKhata treat ASR confidence as `float | None` rather than computing `exp(avg_logprob)`?
+1. **What the interviewer wants to evaluate:** Statistical calibration, ASR decoder mechanics, and honest contract design for safety-critical systems.
+2. **Technically correct answer:** Autoregressive encoder-decoder models like Whisper output token log-probabilities (`avg_logprob`). These raw scores are uncalibrated and sequence-length dependent. Exponentiating `avg_logprob` using `math.exp()` produces a pseudo-probability that does not represent a true Bayesian posterior or calibrated confidence. In a financial application where low-confidence words trigger verbal clarification, fabricating a confidence number creates dangerous false certainty. By defining `confidence: float | None`, we enforce honest semantics: numeric values are allowed strictly when provided by a documented runtime probability field; otherwise, it is explicitly `None` (unavailable).
+3. **BolKhata concrete example:** `backend/src/bolkhata/asr/base.py` and `tests/unit/test_providers_mock.py`.
+4. **Follow-up question:** How do you handle word-level timestamps when the engine does not provide confidence?
+5. **Deeper follow-up answer:** `WordTiming` also defines `confidence: float | None = None`. If an engine outputs start and end timestamps but no probability, timing is preserved while confidence remains `None`.
+6. **Relevant files/tests:** `backend/src/bolkhata/asr/base.py`, `tests/unit/test_providers_mock.py`.
+7. **What not to claim:** Do not claim that Whisper's `avg_logprob` is useless; it is useful for relative thresholding within a single model run, but must not be presented as a calibrated $[0.0, 1.0]$ probability to callers.
+
+### Q-D3: How does `initial_prompt` work for vocabulary biasing in Whisper, and how does it differ from an LLM prompt?
+1. **What the interviewer wants to evaluate:** Understanding of acoustic decoder conditioning vs natural language prompt engineering.
+2. **Technically correct answer:** An LLM prompt is a natural language instruction telling the model what task to perform. In Whisper, `initial_prompt` does not give instructions. Instead, it injects preceding context tokens into the autoregressive text decoder. When the decoder generates words, the self-attention mechanism attends to these prompt tokens, making it acoustically biased toward specific spelling, terminology, and domain vocabulary (*"Sharma ji, udhaar, jama, chawal, pachaas"*). This solves acoustic ambiguity in noisy kirana shops without fine-tuning weights.
+3. **BolKhata concrete example:** `initial_prompt` parameter in `ASRProvider.transcribe()` (`backend/src/bolkhata/asr/base.py`).
+4. **Follow-up question:** What happens if the `initial_prompt` is too long?
+5. **Deeper follow-up answer:** Whisper decodes text in 30-second context windows (up to 448 tokens). Long prompts consume decoder token context, reducing the space available for transcribing speech. Therefore, initial prompts should be concise domain token lists rather than long prose.
+6. **Relevant files/tests:** `backend/src/bolkhata/asr/base.py`, `tests/unit/test_providers_mock.py`.
+7. **What not to claim:** Do not claim initial prompts can force Whisper to output words that were never spoken; it biases spelling and vocabulary recognition, but does not overwrite clear acoustic signals.
+
 ---
 
 ## Topic E — Backend, Databases & Money Safety
