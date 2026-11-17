@@ -56,7 +56,7 @@ class ASRProvider(ABC):
       Headerless 16,000 Hz, 16-bit Signed Little-Endian Mono Linear PCM.
 
     Streaming and cancellation semantics:
-      * Sequence-to-sequence Whisper engines (Faster-Whisper, MLX-Whisper)
+      * Sequence-to-sequence Whisper engines (such as MLX-Whisper on Apple Silicon)
         operate on chunked sliding windows rather than native causal streaming.
       * transcribe() is the primary push-to-talk method, operating on the
         complete buffer after speech ends.

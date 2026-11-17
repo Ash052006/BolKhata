@@ -12,7 +12,7 @@
 This guide prepares you to explain, defend, and deep-dive into BolKhata during high-bar technical interviews. It moves beyond generic textbook definitions by grounding every answer in the **actual architectural choices, bugs discovered, source code, and verified tests** of this repository.
 
 ### Rules of Engagement in an Interview
-1. **Never Claim Planned Work as Implemented:** Be brutally honest about what is merged (`S0` foundation, `S1` provider contracts, mock registry, 16 kHz PCM utilities) versus what is planned (`S2` number parser, `S3` ledger, concrete Faster-Whisper/MLX adapters). Interviewers respect engineers who know exact system boundaries.
+1. **Never Claim Planned Work as Implemented:** Be brutally honest about what is merged (`S0` foundation, `S1` provider contracts, mock registry, 16 kHz PCM utilities) versus what is planned (`S2` number parser, `S3` ledger, concrete MLX adapter on Apple Silicon). Interviewers respect engineers who know exact system boundaries.
 2. **Anchor Answers in Invariants:** When explaining architecture, focus on core invariants (fail-closed security, append-only ledger, zero-network CI, money safety).
 3. **Walk Through Real Bugs:** Senior engineers are defined by how they diagnose and solve subtle distributed and concurrent failure modes (e.g., the registry retry-order bug, thread cancellation limits).
 
@@ -49,7 +49,7 @@ This guide prepares you to explain, defend, and deep-dive into BolKhata during h
 > "Architecturally, BolKhata is built as a FastAPI async application coupled with a React/TypeScript voice PWA in a monorepo.
 > Looking at the data flow:
 > The client captures microphone audio via browser `AudioWorklet` strictly as uncompressed 16 kHz mono signed 16-bit little-endian PCM. This standard 32 KB/s stream is sent over WebSockets to our backend.
-> In the backend, we use the Dependency Injection pattern via a centralized `ProviderRegistry`. All machine learning models—ASR, TTS, LLM, and VAD—sit behind abstract contracts (`BaseProvider`). This design ensures that our CI runs deterministically without downloading models or requiring GPUs, while production can toggle between Faster-Whisper, MLX-Whisper, or local models via environment variables.
+> In the backend, we use the Dependency Injection pattern via a centralized `ProviderRegistry`. All machine learning models—ASR, TTS, LLM, and VAD—sit behind abstract contracts (`BaseProvider`). This design ensures that our CI runs deterministically without downloading models or requiring GPUs, while production can toggle between mock, real MLX-Whisper on Apple Silicon, or local models via environment variables.
 > When audio arrives, our shared audio module normalizes signed 16-bit integers to float32 tensors in the range $[-1.0, 1.0]$ using Python's standard-library `array` module—avoiding heavy C-extensions like NumPy in core utilities.
 > Once speech is transcribed, we separate intent extraction from financial parsing: intent and entities are handled via structured outputs, while currency amounts are parsed deterministically.
 > Finally, transactions are committed to an append-only database using SQLAlchemy 2.0 and Alembic. We use SQLite with WAL mode by default for zero-dependency local setups and provide a PostgreSQL profile for scaled multi-container deployments. All structured logs pass through a fail-closed JSON scrubber that scrubs customer PII and phone numbers before writing to disk."
@@ -170,7 +170,7 @@ Using pytest-asyncio, we write tests that:
 4. **Follow-up question:** Why is `MockTTSProvider` generating real sine-wave PCM audio instead of empty bytes?
 5. **Deeper follow-up answer:** If a mock returns empty bytes or fake ASCII text, downstream audio consumers (like duration calculators, audio format validators, or streaming WebSocket serializers) cannot verify real audio framing. Our mock generates mathematically valid 16 kHz 16-bit mono sine-wave PCM chunks matching the expected duration, enabling high-fidelity integration testing.
 6. **Relevant files/tests:** `backend/src/bolkhata/tts/mock.py`, `tests/unit/test_providers_mock.py`.
-7. **What not to claim:** Do not claim that passing mock tests proves Faster-Whisper won't run out of GPU VRAM; hardware benchmarking is explicitly separated into S5.
+7. **What not to claim:** Do not claim that passing mock tests proves MLX-Whisper won't run out of unified memory; hardware benchmarking is explicitly separated into S5.
 
 ---
 
@@ -197,23 +197,27 @@ Using pytest-asyncio, we write tests that:
 - **Defense:**
   1. **Connectivity & Latency:** Kirana stores operate in congested markets with spotty internet. Cloud APIs require uploading 100 KB+ audio over slow uplinks, waiting 2–4 seconds for transcription, and making another network roundtrip for LLM extraction. Total latency exceeds 5 seconds, which feels broken during a customer transaction.
   2. **Cost at Scale:** A busy kirana store handles 300+ transactions a day. Paying cloud API fees per transaction would completely eliminate our profit margin.
-  3. **Offline Reliability:** When the shopkeeper's 4G drops, a cloud-dependent app stops working. Our architecture supports running lightweight quantized models (Faster-Whisper on CPU/GPU, MLX on Mac, local LLMs) completely offline.
+  3. **Offline Reliability:** When the shopkeeper's 4G drops, a cloud-dependent app stops working. Our architecture supports running lightweight quantized models (MLX-Whisper on Apple Silicon Mac, local LLMs) completely offline.
 
 ### Challenge 2: "Why is an LLM involved in a financial application at all if it can hallucinate?"
 - **Defense:**
   The LLM is strictly restricted to **semantic entity extraction** (identifying customer names, item names, and transaction intent like credit vs debit). It is **physically barred from performing arithmetic or deciding amounts**. Numbers are extracted by deterministic code, read back verbally, and explicitly confirmed by the human shopkeeper before persistence. The LLM provides conversational flexibility, while deterministic code provides financial safety.
 
-### Challenge 3: "What if two shopkeeper devices attempt to update the same customer simultaneously?"
+### Challenge 3: "Why did you drop Windows/NVIDIA CUDA support and standardize exclusively on Apple Silicon?"
+- **Defense:**
+  In local edge AI, hardware selection dictates runtime efficiency. A kirana store counter requires compact, silent, fanless, and power-efficient hardware. The Apple Silicon MacBook Air M5 provides 16 GB of high-bandwidth unified memory accessible simultaneously by CPU, GPU, and Neural Engine without PCIe host-to-device bus transfer bottlenecks. Maintaining dual-stack configuration (CUDA, CTranslate2, Faster-Whisper) alongside Apple's MLX created unnecessary complexity, configuration bloat, and leaky abstractions. Standardizing on Apple Silicon and MLX allows us to optimize directly for Metal unified memory and keep our dependency graph lean.
+
+### Challenge 4: "What if two shopkeeper devices attempt to update the same customer simultaneously?"
 - **Defense:**
   Because the ledger is **append-only**, there are no in-place row updates or lock contentions. Both devices insert immutable transaction event rows with unique IDs and client timestamps. A customer's balance is computed as the sum of all transaction rows. If offline devices sync later, their append-only event logs merge deterministically without write-write conflicts.
 
-### Challenge 4: "Why did you default ASR concurrency to 1? Isn't that terrible for scalability?"
+### Challenge 5: "Why did you default ASR concurrency to 1? Isn't that terrible for scalability?"
 - **Defense:**
-  On local edge nodes or developer laptops, neural inference engines (Whisper / CTranslate2) internally saturate all available CPU/GPU cores using multi-threaded matrix multiplication. If you accept two concurrent speech inferences on a 4-core machine, thread contention causes CPU cache thrashing, doubling the latency for both users. Serializing inference via an async semaphore guarantees deterministic, minimum latency per request. On production clusters with multi-GPU hardware, concurrency is scaled via `ASR_MAX_CONCURRENCY` in `.env`.
+  On local edge nodes or developer laptops, neural inference engines (Whisper / MLX) internally saturate all available CPU/GPU cores using multi-threaded matrix multiplication. If you accept two concurrent speech inferences on a 4-core machine, thread contention causes CPU cache thrashing, doubling the latency for both users. Serializing inference via an async semaphore guarantees deterministic, minimum latency per request. On production clusters with multi-GPU hardware, concurrency is scaled via `ASR_MAX_CONCURRENCY` in `.env`.
 
-### Challenge 5: "What are the biggest limitations of the current implementation?"
+### Challenge 6: "What are the biggest limitations of the current implementation?"
 - **Defense (Honest & Evidence-Based):**
-  1. Concrete speech recognition adapters (Faster-Whisper and MLX) are not yet merged; we are currently running on verified deterministic mocks and audio utilities.
+  1. Concrete speech recognition adapter (MLX-Whisper on Apple Silicon) is not yet merged; we are currently running on verified deterministic mocks and audio utilities.
   2. The push-to-talk WebSocket loop is not yet connected to the frontend UI.
   3. Acoustic accuracy (WER) on heavily accented rural Hindi dialects in extreme background noise has not yet been benchmarked on physical hardware.
 
@@ -235,5 +239,5 @@ Before walking into a technical interview, ensure you can live-code or explain:
 - [ ] **Key Architectural Numbers:**
   - 16 kHz Mono Signed 16-bit PCM = 32,000 bytes/sec.
   - Normalization divisor = `32768.0`.
-  - 96 passing unit/integration tests running in ~0.15s.
+  - 129 passing unit/integration tests running in ~0.18s.
   - Strict Mypy type-checking across 23 backend source files.

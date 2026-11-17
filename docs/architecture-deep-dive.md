@@ -71,7 +71,7 @@ flowchart TD
 
     subgraph Providers ["Provider Registry (Dependency Injection)"]
         REG["ProviderRegistry<br/>(Lifecycle & DI)<br/><b>[Implemented - S1]</b>"]
-        ASR_MOD["ASR Provider<br/>(Mock <b>[Done]</b> / Faster-Whisper, MLX <i>[Planned]</i>)"]
+        ASR_MOD["ASR Provider<br/>(Mock <b>[Done]</b> / MLX (Apple Silicon) <i>[Planned]</i>)"]
         VAD_MOD["VAD Provider<br/>(Mock <b>[Done]</b> / Silero <i>[Planned]</i>)"]
         TTS_MOD["TTS Provider<br/>(Mock <b>[Done]</b> / Piper, Edge <i>[Planned]</i>)"]
         LLM_MOD["LLM Provider<br/>(Mock <b>[Done]</b> / Local or API <i>[Planned]</i>)"]
@@ -268,7 +268,12 @@ class BaseProvider(ABC):
   - `confidence` is `float | None`. Numeric values are restricted to documented runtime probabilities; uncalibrated scores or missing probabilities are represented strictly as `None`.
   - Empty audio input returns an empty result: `ASRResult(text="", language=..., confidence=None, duration_ms=0.0, words=())`.
   - `words` is deeply immutable (`tuple[WordTiming, ...]`), preventing accidental in-place mutation by downstream pipeline filters.
-  - `initial_prompt` is contextual vocabulary tokens passed to conditioning layers; it does not alter audio semantics.
+  - `initial_prompt` supplies contextual vocabulary tokens to the autoregressive decoder self-attention as preceding prefix tokens, biasing token likelihood toward domain terminology (*Sharma ji, udhaar, jama, chawal*) without altering audio semantics or overriding acoustic cross-attention from the encoder.
+- **Hardware Target & Real Engine Architecture:**
+  - Real ASR execution is planned exclusively for the **Apple Silicon MacBook Air M5** (16 GB unified memory) using Apple's MLX machine learning framework (`mlx-whisper`).
+  - Unified memory architecture allows CPU, GPU, and Neural Engine to access model weights directly without PCIe bus transfers.
+  - Windows/NVIDIA/CUDA and Faster-Whisper configurations were superseded and completely removed (see [DEC-0026](decision.md#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime)).
+  - Real MLX neural inference is scheduled for Stage 2; base package load and CI remain 100% offline using deterministic mocks.
 
 ### 2. `TTSProvider` Contract (`bolkhata.tts.base`)
 - **Input:** Plain text string (`str`), voice ID (`str | None`), speaking rate multiplier (`float`).
@@ -537,7 +542,7 @@ The following targets are established in `docs/slo.md` and will be measured in S
 
 ```mermaid
 graph LR
-    S1[S1: Provider Adapters<br/>Faster-Whisper & MLX] --> S2[S2: Deterministic Number Parser<br/>& Evaluation Harness]
+    S1[S1: Provider Adapters<br/>MLX (Apple Silicon)] --> S2[S2: Deterministic Number Parser<br/>& Evaluation Harness]
     S2 --> S3[S3: Kirana DomainPack<br/>& Append-Only Ledger]
     S3 --> S4[S4: Spoken Read-Back<br/>& Verbal Correction Loop]
     S4 --> S5[S5: React PWA AudioWorklet<br/>& Hardware Benchmarks]

@@ -50,7 +50,8 @@ It captures the architectural, technological, and engineering trade-offs made ac
   - [DEC-0022: Bounded ASR Concurrency Defaulting to Unity](#dec-0022-bounded-asr-concurrency-defaulting-to-unity)
   - [DEC-0023: Honest Optional Confidence Contract (float | None)](#dec-0023-honest-optional-confidence-contract-float--none)
   - [DEC-0024: Vocabulary-Prompt Support (initial_prompt) for Contextual Biasing](#dec-0024-vocabulary-prompt-support-initial_prompt-for-contextual-biasing)
-  - [DEC-0025: Platform-Specific Optional Dependency Isolation for AI Runtimes](#dec-0025-platform-specific-optional-dependency-isolation-for-ai-runtimes)
+  - [DEC-0025: Platform-Specific Optional Dependency Isolation for AI Runtimes (Superseded)](#dec-0025-platform-specific-optional-dependency-isolation-for-ai-runtimes)
+  - [DEC-0026: Apple Silicon-Only Architecture with MLX ASR Runtime](#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime)
 
 ---
 
@@ -898,7 +899,7 @@ Extend the `ASRProvider.transcribe()` contract to accept an optional `initial_pr
 2. *Post-ASR fuzzy spell-checking alone:* Fails if phonetically similar words are transcribed completely differently by the acoustic model.
 
 **Why this approach:**
-Whisper's decoder conditioning on `initial_prompt` is a proven, zero-overhead technique to bias attention towards known vocabulary prior to transcription.
+Whisper's decoder conditioning on `initial_prompt` supplies preceding textual prefix tokens to the autoregressive decoder self-attention. This biases token generation toward known domain vocabulary prior to transcribing speech, without modifying the underlying audio signal or overriding acoustic representations from the encoder.
 
 **Trade-offs:**
 The caller must extract or provide relevant vocabulary (e.g. from the shop's local customer address book).
@@ -911,19 +912,21 @@ Verified by `test_mock_asr_transcribe_initial_prompt_pass_through` in `tests/uni
 
 **Interview angle:**
 *Challenge:* What is the difference between an initial prompt in Whisper and an LLM prompt?
-*Defense:* An LLM prompt is an instruction directing the model to generate a response. In Whisper, `initial_prompt` acts as preceding context tokens for the decoder, conditioning the cross-attention layers toward specific vocabulary spellings without instructing the model to change what was actually spoken.
+*Defense:* An LLM prompt is an instruction directing the model to generate a response or complete an open-ended task. In Whisper, `initial_prompt` acts as preceding textual context tokens fed to the autoregressive decoder. Through masked self-attention over these prefix tokens, the decoder's language modeling prior is biased toward specific domain terminology (*Sharma ji, udhaar, jama, chawal*) without instructing the model to hallucinate or altering the acoustic cross-attention between decoder and encoder.
 
 ---
 
 ### DEC-0025: Platform-Specific Optional Dependency Isolation for AI Runtimes
 - **Date:** 2026-11-17
 - **Stage:** S1 Stage 2
-- **Status:** Implemented Decision
+- **Status:** Superseded by [DEC-0026](#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime)
 - **Related files:** `backend/pyproject.toml`, `backend/uv.lock`, `tests/unit/test_settings_asr.py`
-- **Related commit:** Pending S1 Stage 2 Prompt 1 commit
+- **Related commit:** Commit `f84abff`
+
+*(Historical Note: Dual-platform packaging across Windows RTX 3050 and Apple Silicon Mac was superseded by DEC-0026, which narrowed the physical hardware target exclusively to the Apple Silicon MacBook Air M5).*
 
 **Context:**
-BolKhata targets heterogeneous hardware: Windows RTX 3050 (requiring CTranslate2 / CUDA) and Apple Silicon Mac (requiring Apple MLX / Metal). Installing MLX on Windows fails to build; installing CUDA/PyTorch bloats Mac and CI runners.
+BolKhata initially targeted heterogeneous hardware: Windows RTX 3050 (requiring CTranslate2 / CUDA) and Apple Silicon Mac (requiring Apple MLX / Metal). Installing MLX on Windows fails to build; installing CUDA/PyTorch bloats Mac and CI runners.
 
 **Decision:**
 Configure `faster-whisper==1.2.1` and `mlx-whisper==0.4.3` as optional dependency extras in `pyproject.toml`. Guard `mlx-whisper` with environment marker `sys_platform == 'darwin' and platform_machine == 'arm64'`. Lock dependencies reproducibly in `uv.lock`. Keep the default development and CI environment 100% free of heavy speech runtimes.
@@ -947,3 +950,42 @@ Verified by `test_package_imports_without_speech_runtimes` in `tests/unit/test_s
 **Interview angle:**
 *Challenge:* How do you manage platform-specific AI dependencies in a monorepo without breaking CI?
 *Defense:* We use PEP 508 environment markers (`sys_platform == 'darwin' and platform_machine == 'arm64'`) and optional dependency extras in `pyproject.toml`. Standard CI installs zero ML packages, testing contracts with deterministic mocks. Hardware nodes install their respective extra (`--extra faster-whisper` or `--extra mlx-whisper`), keeping environments clean and reproducible.
+
+---
+
+### DEC-0026: Apple Silicon-Only Architecture with MLX ASR Runtime
+- **Date:** 2026-11-17
+- **Stage:** S1 Stage 2
+- **Status:** Implemented Decision
+- **Supersedes:** [DEC-0025](#dec-0025-platform-specific-optional-dependency-isolation-for-ai-runtimes)
+- **Related files:** `backend/pyproject.toml`, `backend/uv.lock`, `backend/src/bolkhata/config/settings.py`, `tests/unit/test_settings_asr.py`
+
+**Context:**
+The project previously contemplated heterogeneous target environments (Windows NVIDIA RTX 3050 via Faster-Whisper/CUDA and Apple Silicon via MLX/Metal). A firm platform decision was made: development, inference, testing, and benchmarking will use only the Apple Silicon MacBook Air M5 with 16 GB unified memory. Carrying dual-stack configuration (CUDA, CTranslate2, Faster-Whisper, generic `asr_device` and `asr_compute_type`) added unnecessary architectural overhead, dead configuration paths, and bloated dependency locks.
+
+**Decision:**
+1. Scope the real ASR foundation exclusively to Apple Silicon using Apple's MLX framework (`mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'`).
+2. Remove all `faster-whisper` packages and transitive dependencies (`ctranslate2`, `onnxruntime`, `protobuf`, `tokenizers`, `av`) from `pyproject.toml` and `uv.lock`.
+3. Remove `asr_faster_whisper_model_id`, `asr_faster_whisper_model_revision`, `asr_device`, and `asr_compute_type` from `Settings`.
+4. Retain and validate only runtime settings required by MLX: `asr_mlx_whisper_model_id`, `asr_mlx_whisper_model_revision` (pinned full 40-char commit hash), `asr_model_dir`, `asr_offline_mode`, `asr_max_duration_seconds`, and `asr_max_concurrency`.
+5. Keep default CI and local test environments completely free of MLX dependencies and model downloads; real MLX inference remains an upcoming stage implementation.
+
+**Alternatives considered:**
+1. *Maintain dual-stack Faster-Whisper and MLX configuration:* Rejected because BolKhata is standardized on Apple Silicon unified memory hardware. Dual-stack abstraction introduces unused complexity and configuration drift.
+2. *Keep generic device/compute_type abstractions:* Rejected because MLX uses Apple Silicon Metal unified memory natively; CTranslate2/CUDA compute types (`int8_float16`, `cuda`) do not map to the MLX API.
+
+**Why this approach:**
+Apple Silicon unified memory allows the M-series CPU, GPU, and Neural Engine to access model weights without PCIe bus transfer latency. MLX is purpose-built for Apple Silicon, delivering high-throughput, low-latency local inference in fanless hardware suitable for noisy Indian kirana shops.
+
+**Trade-offs:**
+Execution on non-Apple Silicon hardware (e.g. Linux/Windows servers) with real neural inference is not supported out-of-the-box, though standard mock providers and unit tests remain 100% platform-independent.
+
+**Consequences:**
+The codebase, lockfile, and settings schema are simplified and aligned with actual deployment hardware. CI remains sub-second fast.
+
+**Evidence:**
+Verified by `TestASRSettingsDefaultsAndOverrides`, `TestASRSettingsValidationErrors`, and `TestASRRuntimeImportIsolation` in `tests/unit/test_settings_asr.py` (129 passed).
+
+**Interview angle:**
+*Challenge:* Why did you discard cross-platform support and standardize exclusively on Apple Silicon?
+*Defense:* In hardware-accelerated edge AI, premature abstraction creates dead code. Running local speech models in a kirana store requires fanless, power-efficient, high-memory-bandwidth hardware. Apple Silicon's 16 GB unified memory architecture eliminates PCIe host-to-device memory copies between CPU and GPU. Rather than maintaining leaky abstractions over disparate runtimes (CUDA vs Metal), standardizing on MLX maximizes throughput, simplifies deployment, and keeps the dependency graph minimal.

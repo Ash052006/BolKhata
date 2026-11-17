@@ -405,10 +405,14 @@ class TestProviderRegistry:
             Settings(asr_max_concurrency=-1)
 
     def test_future_provider_raises_not_implemented_in_stage1(self) -> None:
-        settings_asr = Settings(asr_provider="faster_whisper")
+        settings_asr = Settings(asr_provider="mlx_whisper")
         reg_asr = ProviderRegistry(settings_asr)
         with pytest.raises(ProviderNotImplementedError, match="Stage 1"):
             _ = reg_asr.asr
+
+        # Faster-Whisper is no longer a supported provider (Apple Silicon MLX only)
+        with pytest.raises(ValueError, match="ASR_PROVIDER must be one of"):
+            Settings(asr_provider="faster_whisper")
 
         settings_tts = Settings(tts_provider="piper")
         reg_tts = ProviderRegistry(settings_tts)

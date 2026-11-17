@@ -89,10 +89,10 @@ class ProviderRegistry:
         norm = provider_name.strip().lower()
         if norm == "mock":
             return MockASRProvider()
-        if norm in ("faster_whisper", "mlx_whisper"):
+        if norm == "mlx_whisper":
             raise ProviderNotImplementedError(
                 f"ASR provider '{provider_name}' is not yet implemented in Stage 1. "
-                "Real engine adapters are scheduled for Stage 2."
+                "Real MLX adapter is scheduled for Stage 2."
             )
         raise ConfigurationError(f"Unknown ASR provider: {provider_name!r}")
 

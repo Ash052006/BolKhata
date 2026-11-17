@@ -113,7 +113,7 @@ flowchart TD
 
     subgraph SpeechPipeline ["Speech & Audio Layer"]
         COMMON["Audio Utils & Settings<br/>(16kHz s16le PCM to float32)<br/><b>[Implemented - S1]</b>"]
-        ASR["ASR Provider<br/>(Mock <b>[Done]</b> / Faster-Whisper, MLX <i>[Planned]</i>)"]
+        ASR["ASR Provider<br/>(Mock <b>[Done]</b> / MLX (Apple Silicon) <i>[Planned]</i>)"]
         VAD["VAD Provider<br/>(Mock <b>[Done]</b> / Silero <i>[Planned]</i>)"]
         TTS["TTS Provider<br/>(Mock <b>[Done]</b> / Piper, Edge <i>[Planned]</i>)"]
     end
@@ -156,7 +156,7 @@ The project schedule follows the master roadmap outlined in `bolkhata-agent-prom
 | Stage | Objective | What We Do | Why It Matters | Status |
 |---|---|---|---|---|
 | **S0** | **Production Foundation** | Monorepo layout, FastAPI factory, async DB (SQLite/Postgres), health/readiness probes, structured logging with PII redaction, Docker Compose, CI, strict Ruff/mypy gates. | Eliminates technical debt early; establishes verifiable engineering baselines before introducing non-deterministic ML models. | **Completed** |
-| **S1** | **Provider Foundation & ASR Adapter** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Faster-Whisper and MLX-Whisper adapters, push-to-talk WebSocket slice. | Allows rapid model swapping across Mac (Metal) and PC (CUDA); enables 100% offline, deterministic CI testing without downloading heavy weights. | **In Progress**<br/>*(Interfaces, Registry, Mocks & Audio Utils Completed)* |
+| **S1** | **Provider Foundation & ASR Adapter** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Apple Silicon MLX ASR configuration, push-to-talk WebSocket slice. | Optimized exclusively for Apple Silicon MacBook Air (16 GB unified memory); enables 100% offline, deterministic CI testing without downloading heavy weights. | **In Progress**<br/>*(Interfaces, Registry, Mocks, Audio Utils & MLX Config Completed)* |
 | **S2** | **Spoken-Number Parser & Evaluation Harness** | Deterministic number parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*), ground-truth audio test corpus, Word Error Rate (WER) and number extraction accuracy evaluation harness. | **Money safety:** Large language models hallucinate and fail at Indian colloquial arithmetic. Deterministic parsing guarantees mathematical correctness. | **Planned** |
 | **S3** | **DomainPack & Ledger Extraction** | Pluggable DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, append-only ledger schema, idempotency tokens. | Decouples speech pipeline from business logic; guarantees immutable financial audit trails and prevents double-posting. | **Planned** |
 | **S4** | **Read-Back, Correction & Failure Handling** | Verbal confirmation loop, state machine (IDLE, LISTENING, THINKING, SPEAKING), voice-driven transaction corrections, network failure and audio recovery flows. | Kirana shops cannot afford silent transcription mistakes; explicit verbal read-back ensures merchant trust and operational resilience. | **Planned** |
@@ -258,7 +258,7 @@ During thorough edge-case testing of the `ProviderRegistry`, five subtle lifecyc
 ### S1 Stage 2 (Prompt 1): Audio Utilities & Shared ASR Settings
 *Commit: `863b07d` (PCM utilities and ASR settings)*
 
-Before implementing concrete speech recognition engines (Faster-Whisper and MLX-Whisper), we established a shared, high-performance audio standard:
+Before implementing concrete speech recognition on Apple Silicon (MLX-Whisper), we established a shared, high-performance audio standard:
 - **Audio Format Specification:**
   - Sample Rate: `16,000 Hz` (`SAMPLE_RATE_HZ`)
   - Channels: `1` Mono (`CHANNELS`)
@@ -298,27 +298,27 @@ To preserve engineering rationale, accelerate onboarding, and provide comprehens
 
 Additionally, `agent.md` was updated with a mandatory **Documentation Maintenance Contract** binding future coding agents to update these records after every implementation task, and all document links were made repository-relative for portable navigation across clones and GitHub.
 
-### S1 Stage 2 (Prompt 1 Extension): ASR Runtime Configuration, Vocabulary Biasing Contract & Honest Confidence
-*Commit: Pending Prompt 1 commit*
+### S1 Stage 2: Apple Silicon MLX ASR Runtime Configuration, Vocabulary Biasing & Honest Confidence
+*Commits: `f84abff`, `fix(s1): make ASR configuration Apple Silicon only`*
 
-To prepare the codebase for concrete Faster-Whisper and MLX-Whisper adapters without premature model downloads, we hardened the speech contracts, configuration, and packaging:
+To prepare the codebase for concrete Apple Silicon speech recognition without premature model downloads or cross-platform configuration bloat, we hardened the speech contracts, configuration, and packaging:
 - **Honest Confidence Contract:** Changed `ASRResult.confidence` and `WordTiming.confidence` to `float | None`. Numeric values are permitted strictly when originating from documented runtime probabilities. Uncalibrated beam-search log probabilities (`avg_logprob`) are not converted to probabilities via `exp()`, and missing confidences are never masked with `1.0`. `None` explicitly signals unavailable confidence. Empty audio returns an empty result with `confidence=None`.
-- **Vocabulary-Prompt Support:** Extended `ASRProvider.transcribe()` to accept optional `initial_prompt: str | None = None`. This allows passing contextual domain tokens (*Sharma ji, udhaar, jama, chawal*) to the Whisper decoder's cross-attention layers, conditioning acoustic transcription without altering audio semantics.
-- **Provider-Specific ASR Settings:** Added strongly-typed Pydantic settings in `bolkhata.config.settings:Settings`:
-  - `asr_faster_whisper_model_id: str = "Systran/faster-whisper-small"`
-  - `asr_faster_whisper_model_revision: str | None = "536b0662742c02347bc0e980a01041f333bce120"` (full 40-character hex commit verified upstream) <!-- pragma: allowlist secret -->
+- **Vocabulary-Prompt Support:** Extended `ASRProvider.transcribe()` to accept optional `initial_prompt: str | None = None`. This supplies contextual domain tokens (*Sharma ji, udhaar, jama, chawal*) as prefix context to the Whisper autoregressive decoder's masked self-attention, biasing language-modeling token generation toward kirana vocabulary without altering audio semantics or overriding acoustic cross-attention from the encoder.
+- **Apple Silicon-Only Architecture (DEC-0026):**
+  - Standardized physical execution exclusively on the Apple Silicon MacBook Air M5 (16 GB unified memory) using Apple's MLX machine learning framework.
+  - Fully removed Windows/CUDA/Faster-Whisper dependencies, CTranslate2, and generic `asr_device` / `asr_compute_type` settings.
+- **Provider-Specific MLX Settings:** Strongly-typed Pydantic settings in `bolkhata.config.settings:Settings`:
   - `asr_mlx_whisper_model_id: str = "mlx-community/whisper-small-mlx"`
   - `asr_mlx_whisper_model_revision: str | None = "45f3915923c7a79a5a5b5a7d909d39aeb0e5630e"` (full 40-character hex commit verified upstream) <!-- pragma: allowlist secret -->
-  - `asr_device: str = "auto"` (validated against `auto`, `cpu`, `cuda`)
-  - `asr_compute_type: str = "auto"` (validated against `auto`, `int8`, `float16`, `int8_float16`)
   - `asr_model_dir: str | None = None`
   - `asr_offline_mode: bool = False`
   - `asr_max_duration_seconds: float = 30.0` (validated positive finite number)
-  - Preserved `asr_max_concurrency: int = 1` ($\ge 1$).
-- **Isolated Multi-Platform Optional Dependencies:** Added optional extras `faster-whisper = ["faster-whisper==1.2.1"]` and `mlx-whisper = ["mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'"]` in `pyproject.toml`. Resolved reproducibly in `uv.lock`. Base virtual environment and CI install zero heavy speech libraries.
-- **Unit Test Coverage:** Added `tests/unit/test_settings_asr.py` and updated `tests/unit/test_providers_mock.py`, expanding the passing test suite from 96 to 134 hermetic tests.
+  - `asr_max_concurrency: int = 1` ($\ge 1$).
+  - `asr_provider: str = "mock"` (validated: `mock`, `mlx_whisper`).
+- **Isolated MLX Optional Dependency:** Pinned `mlx-whisper = ["mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'"]` under `[project.optional-dependencies]` in `pyproject.toml`. Resolved reproducibly in `uv.lock`. Base virtual environment and CI install zero heavy speech libraries.
+- **Unit Test Coverage:** Verified by 129 hermetic tests across `tests/unit/test_settings_asr.py` and `tests/unit/test_providers_mock.py`.
 
-> **Note on Scope:** Neither Faster-Whisper nor MLX-Whisper adapters were implemented in this prompt, and zero model weights were downloaded. All tests execute completely offline in milliseconds.
+> **Note on Scope:** The concrete MLX-Whisper adapter is not implemented yet, and zero model weights were downloaded. All tests execute completely offline in milliseconds using deterministic mocks.
 
 
 
@@ -359,7 +359,6 @@ The following table documents the active repository layout, identifying the purp
 | `backend/src/bolkhata/llm/base.py` | Abstract `LLMProvider` contract (`stream_chat`, `complete_structured`). | Implemented by `mock.py`, future LLM adapters. | **Implemented (S1)** |
 | `backend/src/bolkhata/llm/mock.py` | Deterministic mock LLM with fixture-driven structured output. | Used by `registry.py` under `llm_provider="mock"`. | **Implemented (S1)** |
 | `backend/src/bolkhata/domains/` | Package boundary for business domains (e.g. kirana ledger). | Isolated from core speech pipeline. | **Package Boundary (S0)** |
-| `backend/src/bolkhata/asr/faster_whisper.py` | Concrete Faster-Whisper ASR engine adapter. | Depends on `ASRProvider`, CTranslate2. | *Planned (S1 Stage 2)* |
 | `backend/src/bolkhata/asr/mlx_whisper.py` | Concrete Apple Silicon Metal/MLX Whisper ASR adapter. | Depends on `ASRProvider`, mlx-whisper. | *Planned (S1 Stage 2)* |
 | `backend/src/bolkhata/domains/ledger/` | Kirana ledger DomainPack, schema, normalizers, and entities. | Implements DomainPack protocol. | *Planned (S3)* |
 | `frontend/src/App.tsx` | Root React component with health check polling. | Frontend entry point. | **Implemented (S0)** |
@@ -367,6 +366,7 @@ The following table documents the active repository layout, identifying the purp
 | `tests/unit/test_logging_redaction.py` | Unit tests for structured logging and PII redaction rules. | Verifies `logging.py`. | **Implemented (S0)** |
 | `tests/unit/test_providers_mock.py` | Unit tests for provider contracts, mock behaviors, and registry lifecycle. | Verifies `registry.py` and mock providers. | **Implemented (S1)** |
 | `tests/unit/test_asr_common.py` | Unit tests for PCM-to-float32 conversion and audio duration calculations. | Verifies `asr/common.py`. | **Implemented (S1)** |
+| `tests/unit/test_settings_asr.py` | Unit tests for Apple Silicon MLX ASR configuration and validation rules. | Verifies `settings.py` ASR configuration. | **Implemented (S1)** |
 | `tests/integration/test_health.py` | Integration tests for `/health` endpoint. | Verifies API routing and JSON response. | **Implemented (S0)** |
 | `tests/integration/test_ready.py` | Integration tests for `/ready` endpoint under healthy and failed DB states. | Verifies DB connectivity and 503 handling. | **Implemented (S0)** |
 | `tests/integration/test_alembic_smoke.py` | Integration tests verifying clean Alembic migration cycles. | Verifies DB migration scripts. | **Implemented (S0)** |
@@ -392,11 +392,11 @@ Interview Topics:
 
 ### 1. Architecture & System Design
 
-#### Q1.1: Why did you choose a provider-based architecture instead of calling Faster-Whisper or Piper directly?
+#### Q1.1: Why did you choose a provider-based architecture instead of calling MLX-Whisper directly?
 - **What the interviewer is testing:** Understanding of separation of concerns, dependency inversion, testability, and multi-hardware support.
 - **Suggested Answer:**
-  > "In an AI speech system, coupling route handlers directly to specific machine learning libraries creates three major issues: testing becomes slow and non-deterministic because CI must download gigabytes of model weights; switching hardware (e.g. from an Apple Silicon Mac using Metal to an NVIDIA GPU using CUDA) requires rewriting application code; and benchmarking alternative models becomes invasive.
-  > By introducing abstract contracts (`ASRProvider`, `TTSProvider`, `LLMProvider`) and a centralized `ProviderRegistry`, the application code only depends on high-level interfaces. In CI, we inject deterministic mock providers that run in milliseconds without network or GPU access. In production, we swap providers via environment configuration (`ASR_PROVIDER=faster_whisper` or `mlx_whisper`) without altering a single line of business logic."
+  > "In an AI speech system, coupling route handlers directly to specific machine learning libraries creates three major issues: testing becomes slow and non-deterministic because CI must download gigabytes of model weights; switching hardware requires rewriting application code; and benchmarking alternative models becomes invasive.
+  > By introducing abstract contracts (`ASRProvider`, `TTSProvider`, `LLMProvider`) and a centralized `ProviderRegistry`, the application code only depends on high-level interfaces. In CI, we inject deterministic mock providers that run in milliseconds without network or GPU access. In production, we swap providers via environment configuration (`ASR_PROVIDER=mlx_whisper`) without altering a single line of business logic."
 - **Deeper Follow-Up:** How do you handle capability differences between providers (e.g., if one ASR engine supports word-level timestamps but another does not)?
 - **What to show in code:** [backend/src/bolkhata/asr/base.py](../backend/src/bolkhata/asr/base.py) (contract definition) and [backend/src/bolkhata/common/registry.py](../backend/src/bolkhata/common/registry.py) (factory instantiation).
 
@@ -430,7 +430,7 @@ Interview Topics:
   > "Concurrency is about *dealing with* lots of things at once (structuring tasks to make progress independently), whereas parallelism is about *doing* lots of things at once (executing simultaneously on multiple CPU cores).
   > In BolKhata:
   > - **Concurrency (I/O-bound):** Managed by Python's single-threaded `asyncio` event loop. It handles hundreds of incoming WebSocket frames, HTTP requests, and async database queries concurrently without blocking.
-  > - **Parallelism (Compute-bound):** CTranslate2 (Faster-Whisper) executes native C++ matrix multiplications across multiple CPU/GPU threads, releasing Python's GIL. If we ran synchronous inference directly on the asyncio loop, it would freeze the loop, dropping WebSocket frames and failing health checks. Therefore, inference must be offloaded using `asyncio.to_thread()`."
+  > - **Parallelism (Compute-bound):** Native inference engines (such as MLX on Apple Silicon) execute compute-intensive matrix multiplications across Metal GPU and CPU cores, releasing Python's GIL. If we ran synchronous inference directly on the asyncio loop, it would freeze the loop, dropping WebSocket frames and failing health checks. Therefore, native inference must be offloaded using `asyncio.to_thread()`."
 - **Deeper Follow-Up:** What are the hidden risks of using `asyncio.to_thread()` with compute-bound neural models?
 - **What to show in code:** [backend/src/bolkhata/asr/mock.py](../backend/src/bolkhata/asr/mock.py) (async contract definitions).
 
@@ -439,7 +439,7 @@ Interview Topics:
 - **Suggested Answer:**
   > "When a coroutine awaiting `asyncio.to_thread(func)` is cancelled (for example, if a client disconnects), the `asyncio.CancelledError` is raised immediately inside the coroutine on the event loop.
   > However, **Python cannot forcefully kill an operating system thread**. The underlying worker thread in the thread pool continues executing the native C++ inference to completion; its return value is simply discarded when finished.
-  > In BolKhata, we explicitly documented this invariant in ADR 0003: cancellation releases the event loop immediately, but does not abort in-flight native CTranslate2 compute. To prevent resource exhaustion from abandoned requests, we bound concurrency via semaphores rather than spawning unconstrained threads."
+  > In BolKhata, we explicitly documented this invariant: cancellation releases the event loop immediately, but does not abort in-flight native inference compute. To prevent resource exhaustion from abandoned requests, we bound concurrency via semaphores rather than spawning unconstrained threads."
 - **Deeper Follow-Up:** How could you achieve true immediate hardware abort if required?
 - **What to show in code:** [docs/adr/0003-provider-interfaces-and-registry.md](adr/0003-provider-interfaces-and-registry.md) (Contract Invariants: Streaming and Cancellation).
 
@@ -467,15 +467,16 @@ Interview Topics:
 - **Deeper Follow-Up:** Why does endianness matter when processing audio across network boundaries?
 - **What to show in code:** [backend/src/bolkhata/asr/common.py](../backend/src/bolkhata/asr/common.py) (constants and `byteswap()` logic).
 
-#### Q3.2: What is the difference between Faster-Whisper and MLX-Whisper?
-- **What the interviewer is testing:** Knowledge of AI runtimes, quantization, and hardware-specific acceleration.
+#### Q3.2: Why did BolKhata standardize on MLX-Whisper on Apple Silicon instead of Faster-Whisper or PyTorch?
+- **What the interviewer is testing:** Knowledge of AI runtimes, quantization, unified memory, and edge hardware trade-offs.
 - **Suggested Answer:**
-  > "Both run OpenAI's Whisper model architecture, but use completely different execution runtimes:
-  > - **Faster-Whisper:** Powered by CTranslate2, an optimized C++ inference engine supporting INT8/FP16 quantization on x86 CPUs and NVIDIA GPUs (CUDA). It achieves up to 4x speedup over PyTorch with significantly lower memory usage.
-  > - **MLX-Whisper:** Specifically designed for Apple Silicon (M1/M2/M3/M4) using Apple's MLX machine learning framework. It leverages unified memory and Metal GPU cores natively, outperforming CPU-based CTranslate2 on macOS without requiring CUDA.
-  > BolKhata provides adapters for both: MLX-Whisper for Mac development/demos, and Faster-Whisper for Linux/Windows deployment."
-- **Deeper Follow-Up:** How does INT8 quantization affect Word Error Rate (WER) on Indian accented speech?
-- **What to show in code:** [docs/adr/0001-tooling-choices.md](adr/0001-tooling-choices.md) and [docs/adr/0003-provider-interfaces-and-registry.md](adr/0003-provider-interfaces-and-registry.md).
+  > "While Faster-Whisper (CTranslate2) is common on x86/CUDA systems, BolKhata made a firm platform decision to standardize physical execution on the Apple Silicon MacBook Air M5 (16 GB unified memory).
+  > 1. **Unified Memory Architecture:** Apple Silicon allows the M-series CPU, GPU, and Neural Engine to access the same unified memory pool without PCIe bus transfers between host RAM and GPU VRAM.
+  > 2. **Native Metal Acceleration:** Apple's MLX framework compiles and executes Whisper computation graphs natively on Apple Silicon Metal cores, yielding faster inference and lower latency than running CTranslate2 on Mac CPUs.
+  > 3. **Thermal and Operational Fit:** A MacBook Air is fanless, completely silent, and highly power-efficient, making it physically well-suited to hot, dusty, noisy Indian kirana store counters.
+  > 4. **Minimal Dependency Graph:** Dropping dual-stack CUDA/CTranslate2 abstractions eliminated dependency bloat and configuration drift."
+- **Deeper Follow-Up:** How does `initial_prompt` improve transcription accuracy in noisy kirana stores?
+- **What to show in code:** [docs/decision.md](decision.md#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime) and [backend/src/bolkhata/config/settings.py](../backend/src/bolkhata/config/settings.py).
 
 #### Q3.3: Why does speech recognition frequently confuse Indian spoken numbers, and how do you mitigate it?
 - **What the interviewer is testing:** Domain awareness of Indian speech recognition challenges and mitigation strategies.
@@ -609,15 +610,14 @@ Interview Topics:
 ## Section G — Current Status & Next Steps
 
 ### Active Component Status
-*Verified as of S1 Stage 2 Prompt 1*
+*Verified as of S1 Stage 2 MLX Configuration*
 
 - **S0 Production Foundation:** **Completed** (Monorepo, FastAPI, async DB, logging redaction, Alembic, Docker, CI).
 - **S0 Tooling & Secret Remediation:** **Completed** (Reproducible pre-commit, scanner allowlists, clean linting).
 - **S1 Stage 1 Provider Foundation:** **Completed** (Abstract contracts, deterministic mocks, thread-safe DI registry, reverse-order lifecycle rollbacks).
-- **S1 Stage 2 (Prompt 1) Audio Utilities & ASR Settings:** **Completed** (16kHz PCM utilities, float32 conversion, duration calculations, concurrency bounds).
-- **S1 Stage 2 (Prompt 1 Extension) ASR Contracts & Config:** **Completed** (Honest confidence semantics `float | None`, `initial_prompt` pass-through, validated runtime settings, optional dependency groups, 134 passing tests).
-- **Faster-Whisper Adapter:** *Not Implemented (Planned next)*.
-- **MLX-Whisper Adapter:** *Not Implemented (Planned next)*.
+- **S1 Stage 2 Audio Utilities & Concurrency Bounds:** **Completed** (16kHz PCM utilities, float32 conversion, duration calculations, concurrency bounds).
+- **S1 Stage 2 ASR Foundation (Apple Silicon MLX):** **Completed** (Honest confidence semantics `float | None`, `initial_prompt` prefix conditioning, validated MLX runtime settings, `mlx-whisper` optional dependency, 129 passing tests).
+- **MLX-Whisper Adapter (Apple Silicon):** *Not Implemented (Planned next)*.
 - **Real Speech Inference & Evaluation:** *Not Implemented (Planned next)*.
 - **WebSocket Push-to-Talk Voice Loop:** *Not Implemented (Planned S1/S4)*.
 - **S2 Spoken-Number Parser & Evaluation Harness:** *Pending*.
@@ -627,11 +627,9 @@ Interview Topics:
 - **S6 Evidence & Release Freeze:** *Pending*.
 
 ### Next Implementation Sequence
-1. **Faster-Whisper Provider:** Implement `FasterWhisperASRProvider` in `backend/src/bolkhata/asr/faster_whisper.py` using CTranslate2 with CPU/CUDA execution, beam search, and vocabulary biasing tokens.
-2. **MLX-Whisper Provider:** Implement `MLXWhisperASRProvider` in `backend/src/bolkhata/asr/mlx_whisper.py` for hardware-accelerated Metal inference on Apple Silicon Macs.
-3. **Registry Integration & Optional Dependencies:** Wire concrete ASR engines into `ProviderRegistry`, configuring optional dependency groups in `pyproject.toml` (`[project.optional-dependencies]`).
-4. **Real Speech Fixtures & Accuracy Evaluation:** Create recorded Hindi/Hinglish audio fixtures in `tests/fixtures/` and verify ASR accuracy against ground truth without synthetic fabrication.
-5. **Push-to-Talk WebSocket Voice Loop:** Connect audio ingest endpoint to ASR engine and return streaming transcription events to the frontend.
+1. **MLX-Whisper Provider:** Implement `MLXWhisperASRProvider` in `backend/src/bolkhata/asr/mlx_whisper.py` for hardware-accelerated Metal inference on Apple Silicon Macs.
+2. **Real Speech Fixtures & Accuracy Evaluation:** Create recorded Hindi/Hinglish audio fixtures in `tests/fixtures/` and verify ASR accuracy against ground truth without synthetic fabrication.
+3. **Push-to-Talk WebSocket Voice Loop:** Connect audio ingest endpoint to ASR engine and return streaming transcription events to the frontend.
 
 ---
 
@@ -641,7 +639,7 @@ Interview Topics:
 
 | Metric / Verification Gate | Latest Verified Result | What It Proves | Known Limitations |
 |---|---|---|---|
-| **Backend Unit & Integration Tests** | `134 passed in 0.18s` | All 134 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, and ASR settings validation. | Tests use deterministic mocks; real neural inference models are tested in separate evaluation suites. |
+| **Backend Unit & Integration Tests** | `129 passed in 0.18s` | All 129 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, and Apple Silicon MLX ASR settings validation. | Tests use deterministic mocks; real neural inference models are tested in separate evaluation suites. |
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
 | **Ruff Format Check** | `34 files already formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
 | **Mypy Static Type Analysis** | `Success: no issues found in 23 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
@@ -650,7 +648,7 @@ Interview Topics:
 | **Secret Scanning (`detect-secrets`)** | `0 secrets detected ("results": {})` | No API keys, passwords, high-entropy tokens, or credentials exist in tracked files. | Relies on known regex patterns and entropy thresholds. |
 | **Git Diff Cleanliness** | `git diff --check clean` | Zero whitespace errors or trailing carriage returns. | Formatting check only. |
 | **ASR Word Error Rate (WER)** | *Not yet measured* | Real audio evaluation will be conducted in S2/S6. | Unmeasured at current sprint. |
-| **End-to-End Voice Latency (P99)** | *Not yet measured* | Latency budget profiling will occur in S5 on Mac and RTX 3050. | Unmeasured at current sprint. |
+| **End-to-End Voice Latency (P99)** | *Not yet measured* | Latency budget profiling will occur in S5 on Apple Silicon MacBook Air M5. | Unmeasured at current sprint. |
 
 ### Verified Git Commit History
 
@@ -669,7 +667,8 @@ The following table records the verifiable Git commit history on the repository:
 | `b065ab8` | `feat/s1-provider-foundation` | `docs: add engineering progress and interview guide` | Established `docs/progress.md` living engineering journal and interview defense manual. |
 | `b6b7461` | `feat/s1-provider-foundation` | `docs: add engineering knowledge base and deep dive` | Created `docs/decision.md`, `docs/architecture-deep-dive.md`, `docs/README.md`, and updated `agent.md`. |
 | `b261680` | `feat/s1-provider-foundation` | `docs: fix repository-relative documentation links` | Made all documentation file links portable using repository-relative Markdown paths. |
-| *(Pending)* | `feat/s1-provider-foundation` | `feat(s1): define ASR runtime config and confidence semantics` | Honest confidence semantics (`float \| None`), vocabulary-prompt contract, validated ASR runtime settings, platform-specific optional dependencies, and 38 new unit tests. |
+| `f84abff` | `feat/s1-provider-foundation` | `feat(s1): define ASR runtime config and confidence semantics` | Honest confidence semantics (`float \| None`), vocabulary-prompt contract, validated ASR runtime settings, platform-specific optional dependencies, and 38 new unit tests. |
+| *(Pending)* | `feat/s1-provider-foundation` | `fix(s1): make ASR configuration Apple Silicon only` | Standardized ASR configuration exclusively on Apple Silicon (MLX), removed Faster-Whisper, CUDA, and CTranslate2 dependencies, simplified Settings, and updated documentation. |
 
 ---
 
