@@ -51,7 +51,7 @@ In India's retail ecosystem, over 12 million micro-merchants (*kirana* grocery s
 - **FR3 (Explicit Verbal Read-Back):** Every financial transaction must be synthesized and spoken back (*"Sharma ji, 250 rupaye udhaar. Sahi hai?"*) before commitment.
 - **FR4 (Append-Only Persistence):** Immutable transaction ledgers with full compensating audit trails.
 - **NFR1 (Zero Test Network Dependency):** CI and local dev must run 100% offline without downloading multi-gigabyte models.
-- **NFR2 (Multi-Platform Inference):** Native execution on Apple Silicon (Metal/MLX) and NVIDIA/CPU (CTranslate2).
+- **NFR2 (Apple Silicon-Only Local Inference):** Native hardware execution planned exclusively for Apple Silicon (Metal/MLX); mock providers remain platform-independent for hermetic cross-platform CI testing. *(Historical note: initial dual-platform NVIDIA/CTranslate2 planning was superseded per DEC-0026).*
 - **NFR3 (Fail-Closed Privacy):** Zero customer PII or financial amounts leaked in server logs.
 
 ### Component Architecture Diagram
@@ -268,12 +268,13 @@ class BaseProvider(ABC):
   - `confidence` is `float | None`. Numeric values are restricted to documented runtime probabilities; uncalibrated scores or missing probabilities are represented strictly as `None`.
   - Empty audio input returns an empty result: `ASRResult(text="", language=..., confidence=None, duration_ms=0.0, words=())`.
   - `words` is deeply immutable (`tuple[WordTiming, ...]`), preventing accidental in-place mutation by downstream pipeline filters.
-  - `initial_prompt` supplies contextual vocabulary tokens to the autoregressive decoder self-attention as preceding prefix tokens, biasing token likelihood toward domain terminology (*Sharma ji, udhaar, jama, chawal*) without altering audio semantics or overriding acoustic cross-attention from the encoder.
-- **Hardware Target & Real Engine Architecture:**
+  - `initial_prompt` supplies textual context tokens to Whisper's autoregressive decoder. It can bias recognition toward domain vocabulary (*Sharma ji, udhaar, jama, chawal*), but does not guarantee correct recognition and cannot replace acoustic evidence. Excessive or incorrect prompt context can bias the transcript incorrectly or increase hallucination risk. Operational efficacy must be evaluated on real audio using both positive and negative controls.
+- **Hardware Target & Real Engine Architecture `[PLANNED]`:**
   - Real ASR execution is planned exclusively for the **Apple Silicon MacBook Air M5** (16 GB unified memory) using Apple's MLX machine learning framework (`mlx-whisper`).
-  - Unified memory architecture allows CPU, GPU, and Neural Engine to access model weights directly without PCIe bus transfers.
+  - Unified memory architecture allows the CPU and Metal GPU to access model weights directly in unified RAM without PCIe host-to-device bus transfer overhead. (MLX execution operates across CPU and Metal GPU cores; claims of Neural Engine / ANE utilization are unproven and excluded).
+  - Model memory footprint, latency budget compliance, and Word Error Rate (WER) remain **unmeasured** until the real MLX adapter is implemented and benchmarked on target hardware.
   - Windows/NVIDIA/CUDA and Faster-Whisper configurations were superseded and completely removed (see [DEC-0026](decision.md#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime)).
-  - Real MLX neural inference is scheduled for Stage 2; base package load and CI remain 100% offline using deterministic mocks.
+  - Real MLX neural inference is scheduled for Stage 2; base package load and CI remain 100% offline and platform-independent using deterministic mocks (`MockASRProvider` is currently the only active ASR engine).
 
 ### 2. `TTSProvider` Contract (`bolkhata.tts.base`)
 - **Input:** Plain text string (`str`), voice ID (`str | None`), speaking rate multiplier (`float`).
@@ -542,7 +543,7 @@ The following targets are established in `docs/slo.md` and will be measured in S
 
 ```mermaid
 graph LR
-    S1[S1: Provider Adapters<br/>MLX (Apple Silicon)] --> S2[S2: Deterministic Number Parser<br/>& Evaluation Harness]
+    S1[S1: Provider Adapters<br/>MLX (Apple Silicon) <i>[Planned]</i>] --> S2[S2: Deterministic Number Parser<br/>& Evaluation Harness]
     S2 --> S3[S3: Kirana DomainPack<br/>& Append-Only Ledger]
     S3 --> S4[S4: Spoken Read-Back<br/>& Verbal Correction Loop]
     S4 --> S5[S5: React PWA AudioWorklet<br/>& Hardware Benchmarks]

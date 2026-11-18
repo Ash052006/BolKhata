@@ -29,5 +29,5 @@ At the same time, prematurely building complete abstraction layers (such as full
 ## Consequences
 
 - S0 codebase remains clean, focused strictly on foundational infrastructure (FastAPI app factory, health checks, DB readiness, logging with fail-closed redaction, CI/CD, and dockerization).
-- S1 can evaluate concrete speech models (`faster-whisper`, `mlx-whisper`) on real audio fixtures before locking down provider protocol definitions.
+- S1 can evaluate concrete speech models (`mlx-whisper` on Apple Silicon; historical plan included `faster-whisper`) on real audio fixtures before locking down provider protocol definitions.
 - The system remains easily extensible if Round 2 reveals an updated or adjacent problem statement.

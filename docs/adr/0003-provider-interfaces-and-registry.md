@@ -1,15 +1,15 @@
 # ADR 0003: Provider Interfaces and Registry
 
 ## Status
-Accepted
+Accepted *(Amended by [DEC-0026](../decision.md#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime))*
 
 ## Context
 BolKhata is a voice-first ledger for kirana shopkeepers requiring speech recognition (ASR), speech synthesis (TTS), and language model reasoning (LLM).
 
 The project operates under strict operational constraints:
-1. **Multi-Platform Support:** The system must run on Apple Silicon Macs (dev/demo) and optional Windows RTX 3050 laptops (dedicated inference node).
+1. **Target Hardware & Execution Isolation:** Standardized on Apple Silicon Macs for local inference; mock providers remain cross-platform for CI. *(Historical note: initial dual-platform planning across Mac and Windows RTX 3050 was superseded by DEC-0026).*
 2. **Offline & Test Reliability:** Development, unit testing, and continuous integration must run deterministically without downloading multi-gigabyte neural weights or relying on external cloud APIs.
-3. **Decoupled Architecture:** Swapping an AI model (e.g. switching from Faster-Whisper to MLX-Whisper, or Piper to Edge-TTS) must not require changes outside the provider module.
+3. **Decoupled Architecture:** Swapping an AI model (e.g. switching between mock and real MLX-Whisper, or Piper and Edge-TTS) must not require changes outside the provider module.
 4. **Money Safety:** The LLM must never compute, correct, or decide monetary amounts.
 
 ## Decisions
@@ -55,4 +55,4 @@ Each modality provides a deterministic mock implementation (`MockASRProvider`, `
 - **Positive:** CI runs 100% offline in milliseconds without downloading weights.
 - **Positive:** High cohesion and clean inversion of control; replacing an engine requires implementing its provider interface only.
 - **Positive:** Strict typing and failure-safe initialization prevent resource leaks.
-- **Deferred:** Real engine adapters (`faster-whisper`, `mlx-whisper`, `piper`, `groq`, `ollama`) and WebSocket routing are deferred to subsequent gated stages.
+- **Deferred:** Real engine adapters (`mlx-whisper`, `piper`, `groq`, `ollama`) and WebSocket routing are deferred to subsequent gated stages. *(Historical note: Faster-Whisper was removed per DEC-0026).*

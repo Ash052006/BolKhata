@@ -73,7 +73,7 @@ Adopt a unified monorepo hosting `backend/` and `frontend/` with root-level orch
 
 **Alternatives considered:**
 1. *Multi-repo setup:* Separate repos for backend, frontend, and models. Rejected due to version coordination friction.
-2. *Full-stack Next.js/Node:* Running Python ML engines via child processes from Node. Rejected because speech models (CTranslate2, MLX, PyTorch) require first-class Python async runtimes.
+2. *Full-stack Next.js/Node:* Running Python ML engines via child processes from Node. Rejected because speech models (such as MLX or PyTorch) require first-class Python async runtimes.
 
 **Why this approach:**
 Enables atomic commits touching both API contracts and UI views; allows single-command local spin-up (`docker compose up --build`); enforces unified pre-commit validation across both languages.
@@ -389,24 +389,26 @@ Verified in `backend/src/bolkhata/domains/` package layout and ADR 0002.
 - **Related commit:** `96b2b52`
 - **Related ADR:** [ADR 0003: Provider Interfaces and Registry](adr/0003-provider-interfaces-and-registry.md)
 
+*(Historical Note: When DEC-0008 was established in S1 Stage 1, both Faster-Whisper and MLX-Whisper were contemplated. S1 Stage 2 subsequently standardized physical ASR execution exclusively on Apple Silicon MLX per DEC-0026).*
+
 **Context:**
-Machine learning runtimes vary drastically across hardware: Apple Silicon runs MLX or Metal; NVIDIA GPUs run CUDA/CTranslate2; developer CI environments have no GPUs. Directly importing neural model libraries in route handlers couples the codebase to specific hardware.
+Machine learning runtimes vary across target hardware and test environments (e.g. Apple Silicon running Metal/MLX vs developer CI environments with zero GPUs). Directly importing neural model libraries in route handlers couples the codebase to specific hardware.
 
 **Decision:**
 Define abstract base classes (`ASRProvider`, `TTSProvider`, `LLMProvider`, `VADProvider`) with asynchronous methods, typed result contracts, and unified lifecycle management (`initialize`, `warmup`, `shutdown`).
 
 **Alternatives considered:**
-1. *Direct imports:* Calling `faster_whisper.WhisperModel` directly in API routes. Rejected due to inability to test offline.
+1. *Direct imports:* Calling concrete model libraries directly in API routes. Rejected due to inability to test offline.
 2. *Dynamic duck typing:* Passing arbitrary objects without abstract base classes. Rejected because Mypy cannot enforce contract compliance.
 
 **Why this approach:**
-Enables complete decoupling of business logic from machine learning runtimes; allows swapping between mock, Faster-Whisper, and MLX-Whisper via a single environment variable (`ASR_PROVIDER`).
+Enables complete decoupling of business logic from machine learning runtimes; allows swapping between mock and planned real adapters (such as MLX-Whisper on Apple Silicon) via a single environment variable (`ASR_PROVIDER`).
 
 **Trade-offs:**
 Requires defining common denominators across models (e.g. standardizing on 16 kHz PCM inputs).
 
 **Consequences:**
-All real model adapters (Faster-Whisper, MLX-Whisper, Piper TTS) must implement these contracts.
+All planned real model adapters (MLX-Whisper, Piper TTS) must implement these contracts.
 
 **Evidence:**
 Verified by `tests/unit/test_providers_mock.py` confirming mock providers satisfy ABC contracts.
@@ -568,7 +570,7 @@ Verified by `test_multiple_providers_fail_shutdown_retried_in_reverse_startup_or
 - **Related commit:** `687385c`
 
 **Context:**
-Previously, a provider was only recorded in `_initialized_providers` after both `initialize()` and `warmup()` succeeded. If `warmup()` raised an exception (e.g., CUDA out of memory during warmup tensor pass), the provider was never tracked, orphaning any GPU memory allocated during `initialize()`.
+Previously, a provider was only recorded in `_initialized_providers` after both `initialize()` and `warmup()` succeeded. If `warmup()` raised an exception (e.g., out-of-memory or Metal graph allocation error during warmup tensor pass), the provider was never tracked, orphaning any GPU memory allocated during `initialize()`.
 
 **Decision:**
 Track the provider immediately after its `initialize()` method succeeds. If `warmup()` subsequently fails, the provider is already tracked, triggering automatic rollback and cleanup.
@@ -644,7 +646,7 @@ Initial documentation suggested that cancelling an asyncio coroutine awaiting sp
 Document and formalize exact cancellation semantics: cancelling a coroutine awaiting `asyncio.to_thread` abandons the coroutine on the event loop immediately, but the underlying worker thread continues until the native inference step completes. Bounded concurrency (semaphores) prevents resource starvation from abandoned tasks.
 
 **Alternatives considered:**
-1. *Calling C-level thread kill primitives (`pthread_cancel`):* High risk of segfaults, memory leaks, and deadlocks in PyTorch/CTranslate2.
+1. *Calling C-level thread kill primitives (`pthread_cancel`):* High risk of segfaults, memory leaks, and deadlocks in native C/C++ runtimes.
 2. *Pretending cancellation kills the thread:* Dishonest engineering that leads to production memory exhaustion.
 
 **Why this approach:**
@@ -819,7 +821,7 @@ Verified by `test_odd_length_input_rejection` and `test_misaligned_byte_count_re
 - **Related commit:** `863b07d`
 
 **Context:**
-Neural ASR engines (CTranslate2, MLX) are compute-bound and multi-threaded; a single model instance typically utilizes all available CPU/Metal cores. Spawning multiple unconstrained concurrent inference passes on a 16 GB laptop causes severe CPU thrashing, memory exhaustion, and latency spikes.
+Neural ASR engines (such as planned MLX-Whisper on Apple Silicon) are compute-bound and multi-threaded; a single model instance typically saturates available CPU and Metal cores. Spawning multiple unconstrained concurrent inference passes on a 16 GB unified-memory machine risks thread contention, memory exhaustion, and latency spikes.
 
 **Decision:**
 Add `asr_max_concurrency: int = 1` to `Settings`, enforced via Pydantic validator (`>= 1`). Concurrent requests will queue behind an async semaphore.
@@ -851,7 +853,7 @@ Verified by `test_asr_max_concurrency_settings` in `tests/unit/test_providers_mo
 - **Stage:** S1 Stage 2
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/asr/base.py`, `backend/src/bolkhata/asr/mock.py`, `tests/unit/test_providers_mock.py`
-- **Related commit:** Pending S1 Stage 2 Prompt 1 commit
+- **Related commit:** Commit `f84abff0074d631a50bbacc367f2f5fa45a923bd`
 
 **Context:**
 Many ASR models (such as Whisper) produce sequence token log-probabilities (`avg_logprob`), not well-calibrated posterior probabilities. Converting `avg_logprob` using `math.exp()` or substituting missing confidences with arbitrary placeholders like `1.0` falsely implies statistical certainty, misleading downstream financial risk gates.
@@ -886,33 +888,36 @@ Verified by `test_word_timing_and_asr_result_optional_confidence_semantics` and 
 - **Stage:** S1 Stage 2
 - **Status:** Implemented Decision
 - **Related files:** `backend/src/bolkhata/asr/base.py`, `backend/src/bolkhata/asr/mock.py`, `tests/unit/test_providers_mock.py`
-- **Related commit:** Pending S1 Stage 2 Prompt 1 commit
+- **Related commit:** Commit `f84abff0074d631a50bbacc367f2f5fa45a923bd`
 
 **Context:**
-Indian kirana store interactions feature specialized vocabulary: customer surnames (*Sharma, Verma, Gupta*), commodities (*chawal, dal, atta, cheeni*), and transaction terms (*udhaar, jama, khata*). Standard multilingual Whisper often mishears these phonetic terms without acoustic context.
+Indian kirana store interactions feature specialized vocabulary: customer surnames (*Sharma, Verma, Gupta*), commodities (*chawal, dal, atta, cheeni*), and transaction terms (*udhaar, jama, khata*). Standard multilingual Whisper often misrecognizes these phonetic terms without domain context.
 
 **Decision:**
-Extend the `ASRProvider.transcribe()` contract to accept an optional `initial_prompt: str | None = None` parameter. The prompt supplies contextual vocabulary tokens directly to the speech engine without altering audio semantics.
+Extend the `ASRProvider.transcribe()` contract to accept an optional `initial_prompt: str | None = None` parameter. The prompt passes textual context to the underlying speech recognition engine's decoder to bias recognition toward domain-specific kirana vocabulary.
 
 **Alternatives considered:**
-1. *Fine-tuning acoustic models:* Expensive, inflexible, prone to catastrophic forgetting of English terms in Hinglish.
-2. *Post-ASR fuzzy spell-checking alone:* Fails if phonetically similar words are transcribed completely differently by the acoustic model.
+1. *Fine-tuning acoustic models:* Expensive, inflexible, requires continuous retraining as inventory changes, and risks catastrophic forgetting of colloquial Hinglish.
+2. *Post-ASR fuzzy spell-checking alone:* Fails if phonetically similar words are transcribed into completely different phonetic tokens by the acoustic model.
 
 **Why this approach:**
-Whisper's decoder conditioning on `initial_prompt` supplies preceding textual prefix tokens to the autoregressive decoder self-attention. This biases token generation toward known domain vocabulary prior to transcribing speech, without modifying the underlying audio signal or overriding acoustic representations from the encoder.
+`initial_prompt` supplies textual context to Whisper's decoder. It can bias recognition toward known kirana vocabulary. However:
+- It does not guarantee correct recognition and does not replace acoustic evidence.
+- Excessive or incorrect context can also bias the transcript incorrectly or increase hallucination risk.
+- Vocabulary prompting must be evaluated empirically using real Hindi/Hinglish audio, including negative evaluation examples where a suggested word was not spoken.
 
 **Trade-offs:**
-The caller must extract or provide relevant vocabulary (e.g. from the shop's local customer address book).
+The caller must curate relevant vocabulary carefully (e.g. from the shop's local customer address book or active transaction items) to minimize token-budget consumption and hallucination hazards.
 
 **Consequences:**
-Enables Milestone F1 (Vocabulary Biasing) cleanly without modifying core provider contracts.
+Establishes the contract foundation for vocabulary biasing without modifying core provider protocols. Full accuracy validation requires benchmark evaluation on real audio fixtures (planned for Stage 2 / S6).
 
 **Evidence:**
 Verified by `test_mock_asr_transcribe_initial_prompt_pass_through` in `tests/unit/test_providers_mock.py`.
 
 **Interview angle:**
 *Challenge:* What is the difference between an initial prompt in Whisper and an LLM prompt?
-*Defense:* An LLM prompt is an instruction directing the model to generate a response or complete an open-ended task. In Whisper, `initial_prompt` acts as preceding textual context tokens fed to the autoregressive decoder. Through masked self-attention over these prefix tokens, the decoder's language modeling prior is biased toward specific domain terminology (*Sharma ji, udhaar, jama, chawal*) without instructing the model to hallucinate or altering the acoustic cross-attention between decoder and encoder.
+*Defense:* An LLM prompt is an open-ended instruction directing the model to generate a completion or perform reasoning. In Whisper, `initial_prompt` supplies preceding textual context tokens to the autoregressive text decoder, conditioning its language modeling prior toward specific domain spellings (*Sharma ji, udhaar, jama, chawal*). However, `initial_prompt` is not an infallible constraint: excessive or incorrect prompt context can induce hallucination or misalign transcripts against actual acoustics. Its operational efficacy must be proven on real audio using both positive and negative controls.
 
 ---
 
@@ -959,26 +964,34 @@ Verified by `test_package_imports_without_speech_runtimes` in `tests/unit/test_s
 - **Status:** Implemented Decision
 - **Supersedes:** [DEC-0025](#dec-0025-platform-specific-optional-dependency-isolation-for-ai-runtimes)
 - **Related files:** `backend/pyproject.toml`, `backend/uv.lock`, `backend/src/bolkhata/config/settings.py`, `tests/unit/test_settings_asr.py`
+- **Related commit:** Commit `e25299448e62983beb17c45d21c6230c6cb1b06c`
 
 **Context:**
-The project previously contemplated heterogeneous target environments (Windows NVIDIA RTX 3050 via Faster-Whisper/CUDA and Apple Silicon via MLX/Metal). A firm platform decision was made: development, inference, testing, and benchmarking will use only the Apple Silicon MacBook Air M5 with 16 GB unified memory. Carrying dual-stack configuration (CUDA, CTranslate2, Faster-Whisper, generic `asr_device` and `asr_compute_type`) added unnecessary architectural overhead, dead configuration paths, and bloated dependency locks.
+The project previously contemplated heterogeneous target environments (Windows NVIDIA RTX 3050 via Faster-Whisper/CUDA and Apple Silicon via MLX/Metal). A firm platform decision was made: physical development, inference, testing, and benchmarking will standardize exclusively on the Apple Silicon MacBook Air M5 with 16 GB unified memory. Carrying dual-stack configuration (CUDA, CTranslate2, Faster-Whisper, generic `asr_device` and `asr_compute_type`) added unnecessary architectural overhead, dead configuration paths, and bloated dependency locks.
 
 **Decision:**
-1. Scope the real ASR foundation exclusively to Apple Silicon using Apple's MLX framework (`mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'`).
+1. Scope the planned real ASR foundation exclusively to Apple Silicon using Apple's MLX framework (`mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'`).
 2. Remove all `faster-whisper` packages and transitive dependencies (`ctranslate2`, `onnxruntime`, `protobuf`, `tokenizers`, `av`) from `pyproject.toml` and `uv.lock`.
 3. Remove `asr_faster_whisper_model_id`, `asr_faster_whisper_model_revision`, `asr_device`, and `asr_compute_type` from `Settings`.
 4. Retain and validate only runtime settings required by MLX: `asr_mlx_whisper_model_id`, `asr_mlx_whisper_model_revision` (pinned full 40-char commit hash), `asr_model_dir`, `asr_offline_mode`, `asr_max_duration_seconds`, and `asr_max_concurrency`.
-5. Keep default CI and local test environments completely free of MLX dependencies and model downloads; real MLX inference remains an upcoming stage implementation.
+5. Keep default CI and local test environments completely free of MLX dependencies and model downloads; real MLX inference remains an upcoming stage implementation (`MockASRProvider` is currently the only active ASR engine).
 
 **Alternatives considered:**
 1. *Maintain dual-stack Faster-Whisper and MLX configuration:* Rejected because BolKhata is standardized on Apple Silicon unified memory hardware. Dual-stack abstraction introduces unused complexity and configuration drift.
-2. *Keep generic device/compute_type abstractions:* Rejected because MLX uses Apple Silicon Metal unified memory natively; CTranslate2/CUDA compute types (`int8_float16`, `cuda`) do not map to the MLX API.
+2. *Keep generic device/compute_type abstractions:* Rejected because MLX uses Apple Silicon unified memory directly; CTranslate2/CUDA compute types (`int8_float16`, `cuda`) do not map to the MLX API.
 
 **Why this approach:**
-Apple Silicon unified memory allows the M-series CPU, GPU, and Neural Engine to access model weights without PCIe bus transfer latency. MLX is purpose-built for Apple Silicon, delivering high-throughput, low-latency local inference in fanless hardware suitable for noisy Indian kirana shops.
+Apple Silicon unified memory allows the M-series CPU and Metal GPU to access the same physical memory space directly, avoiding host-to-device PCIe bus memory copies. Standardizing on Apple's MLX framework aligns the planned inference implementation with the physical deployment target. Note:
+- MLX execution utilizes Apple Silicon CPU and Metal GPU cores; claims regarding Apple Neural Engine (ANE) utilization are unverified and excluded.
+- Runtime performance, latency, real-time factor (RTF), and memory footprints remain **unmeasured** until the concrete adapter is implemented and benchmarked on target hardware.
+
+**Checkpoint Licensing Note:**
+- The default model candidate is pinned to Hugging Face repository `mlx-community/whisper-small-mlx` at commit revision `45f3915923c7a79a5a5b5a7d909d39aeb0e5630e`.
+- The runtime package licence (`mlx-whisper` under MIT) and the model weights checkpoint licence are legally distinct.
+- The exact checkpoint's licence, upstream attribution, and commercial redistribution terms must be verified before downloading or packaging model weights for production distribution. Until upstream terms are formally audited, the checkpoint's redistribution status remains **unresolved**.
 
 **Trade-offs:**
-Execution on non-Apple Silicon hardware (e.g. Linux/Windows servers) with real neural inference is not supported out-of-the-box, though standard mock providers and unit tests remain 100% platform-independent.
+Execution on non-Apple Silicon hardware with real neural inference is not supported; however, mock providers and the entire test suite remain 100% platform-independent for CI.
 
 **Consequences:**
 The codebase, lockfile, and settings schema are simplified and aligned with actual deployment hardware. CI remains sub-second fast.
@@ -988,4 +1001,4 @@ Verified by `TestASRSettingsDefaultsAndOverrides`, `TestASRSettingsValidationErr
 
 **Interview angle:**
 *Challenge:* Why did you discard cross-platform support and standardize exclusively on Apple Silicon?
-*Defense:* In hardware-accelerated edge AI, premature abstraction creates dead code. Running local speech models in a kirana store requires fanless, power-efficient, high-memory-bandwidth hardware. Apple Silicon's 16 GB unified memory architecture eliminates PCIe host-to-device memory copies between CPU and GPU. Rather than maintaining leaky abstractions over disparate runtimes (CUDA vs Metal), standardizing on MLX maximizes throughput, simplifies deployment, and keeps the dependency graph minimal.
+*Defense:* In hardware-accelerated edge AI, premature cross-platform abstraction creates dead code. A kirana store counter requires compact, silent, fanless, and power-efficient hardware. Apple Silicon's unified memory architecture allows the CPU and GPU to share a unified 16 GB address space without PCIe bus transfer overhead. Rather than maintaining leaky abstractions over disparate runtimes (CUDA vs Metal), standardizing on MLX keeps the dependency graph minimal and focuses engineering effort on the target platform. Model execution metrics remain unmeasured pending benchmark execution.

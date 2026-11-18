@@ -8,7 +8,7 @@ A voice-first ledger for Indian kirana shopkeepers (Hindi, English, Hinglish), b
 - Interaction is push-to-talk.
 
 ## Stack
-Python 3.11+, FastAPI, asyncio, Pydantic v2, SQLAlchemy 2 + Alembic (SQLite by default, PostgreSQL via a docker compose profile), faster-whisper plus a Metal/MLX-based option on the Mac, optional Silero VAD, a local TTS (evaluate), React + TypeScript + Vite as a PWA, AudioWorklet, WebSockets, Docker, pytest, Ruff, mypy, Playwright.
+Python 3.11+, FastAPI, asyncio, Pydantic v2, SQLAlchemy 2 + Alembic (SQLite by default, PostgreSQL via a docker compose profile), MLX-Whisper on Apple Silicon Macs, optional Silero VAD, a local TTS (evaluate), React + TypeScript + Vite as a PWA, AudioWorklet, WebSockets, Docker, pytest, Ruff, mypy, Playwright.
 
 ## Package layout
 backend/src/bolkhata/{config,api,common,asr,tts,llm,realtime,domains}. Ledger-specific code goes ONLY in backend/src/bolkhata/domains/ledger and frontend/src/apps/ledger. Nothing outside domains/ may import from domains/ledger. Every domain implements the DomainPack interface (schema, prompts, normalizers, entity resolver, actions, read-back templates, eval set) so a new problem statement can be built by adding a pack, not changing the pipeline.

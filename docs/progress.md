@@ -270,7 +270,7 @@ Before implementing concrete speech recognition on Apple Silicon (MLX-Whisper), 
   - **Endianness Safety:** Detects system byte order (`sys.byteorder`) and automatically performs `raw_samples.byteswap()` on big-endian hosts, guaranteeing uniform little-endian interpretation.
   - **Input Validation:** Empty byte strings return empty float arrays; misaligned odd-length byte buffers raise a structured `AudioFormatError`.
 - **Duration Calculation:** `compute_duration_ms(byte_count, sample_rate)` computes exact audio duration in milliseconds, enforcing alignment and positive sample rates.
-- **ASR Concurrency Bounds:** Added `asr_max_concurrency: int = 1` in `Settings`. Local ASR models (CTranslate2 / MLX) saturate CPU/GPU cores during inference; allowing unbounded concurrent calls causes severe thread contention and out-of-memory crashes. The safe default of 1 ensures serialized execution unless explicitly scaled.
+- **ASR Concurrency Bounds:** Added `asr_max_concurrency: int = 1` in `Settings`. Speech inference models (such as planned MLX-Whisper on Apple Silicon) saturate CPU/GPU cores during inference; allowing unbounded concurrent calls causes severe thread contention and out-of-memory crashes. The safe default of 1 ensures serialized execution unless explicitly scaled.
 
 #### Illustrative PCM Conversion Example
 ```python
@@ -303,7 +303,7 @@ Additionally, `agent.md` was updated with a mandatory **Documentation Maintenanc
 
 To prepare the codebase for concrete Apple Silicon speech recognition without premature model downloads or cross-platform configuration bloat, we hardened the speech contracts, configuration, and packaging:
 - **Honest Confidence Contract:** Changed `ASRResult.confidence` and `WordTiming.confidence` to `float | None`. Numeric values are permitted strictly when originating from documented runtime probabilities. Uncalibrated beam-search log probabilities (`avg_logprob`) are not converted to probabilities via `exp()`, and missing confidences are never masked with `1.0`. `None` explicitly signals unavailable confidence. Empty audio returns an empty result with `confidence=None`.
-- **Vocabulary-Prompt Support:** Extended `ASRProvider.transcribe()` to accept optional `initial_prompt: str | None = None`. This supplies contextual domain tokens (*Sharma ji, udhaar, jama, chawal*) as prefix context to the Whisper autoregressive decoder's masked self-attention, biasing language-modeling token generation toward kirana vocabulary without altering audio semantics or overriding acoustic cross-attention from the encoder.
+- **Vocabulary-Prompt Support:** Extended `ASRProvider.transcribe()` to accept optional `initial_prompt: str | None = None`. This supplies contextual domain tokens (*Sharma ji, udhaar, jama, chawal*) as prefix context to the Whisper autoregressive decoder's masked self-attention. It biases recognition toward domain vocabulary, but does not guarantee correct recognition or replace acoustic evidence; excessive or incorrect context can bias transcripts incorrectly or increase hallucination risk. Its efficacy must be empirically evaluated against real audio with positive and negative controls.
 - **Apple Silicon-Only Architecture (DEC-0026):**
   - Standardized physical execution exclusively on the Apple Silicon MacBook Air M5 (16 GB unified memory) using Apple's MLX machine learning framework.
   - Fully removed Windows/CUDA/Faster-Whisper dependencies, CTranslate2, and generic `asr_device` / `asr_compute_type` settings.
@@ -318,7 +318,7 @@ To prepare the codebase for concrete Apple Silicon speech recognition without pr
 - **Isolated MLX Optional Dependency:** Pinned `mlx-whisper = ["mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'"]` under `[project.optional-dependencies]` in `pyproject.toml`. Resolved reproducibly in `uv.lock`. Base virtual environment and CI install zero heavy speech libraries.
 - **Unit Test Coverage:** Verified by 129 hermetic tests across `tests/unit/test_settings_asr.py` and `tests/unit/test_providers_mock.py`.
 
-> **Note on Scope:** The concrete MLX-Whisper adapter is not implemented yet, and zero model weights were downloaded. All tests execute completely offline in milliseconds using deterministic mocks.
+> **Note on Scope & Status:** Configuration is Apple Silicon-only, MLX is an optional dependency, the real MLX adapter remains unimplemented (`MockASRProvider` is currently the only working ASR provider), and model accuracy, latency, and memory footprints remain **unmeasured** until benchmarked on target hardware. Zero model weights were downloaded.
 
 
 
@@ -330,9 +330,9 @@ To prepare the codebase for concrete Apple Silicon speech recognition without pr
 |---|---|---|---|---|
 | **ADR 0001: Developer Tooling & Monorepo** *(Accepted)* | `uv` package manager, Python 3.11, FastAPI, Vite 6, Docker Compose. | Poetry/Pipenv; Next.js fullstack; separate backend/frontend repos. | Sub-second dependency resolution with `uv`; strict type safety; single-command local boot (`docker compose up`). | Docker images must build both Python and Node environments; unified tooling requires cross-stack discipline. |
 | **ADR 0002: Domain Isolation Boundary** *(Accepted)* | Strict package boundary (`bolkhata/domains/ledger`). Outside code cannot import from ledger. | Monolithic application code where voice routes directly call ledger DB models. | Allows adapting to new hackathon problem statements or retail domains without modifying the core speech pipeline. | Requires standardized abstraction protocols (`DomainPack`) before domain features can be written. |
-| **ADR 0003: Provider Interfaces & Registry** *(Accepted)* | Abstract base classes (`ASR`, `TTS`, `LLM`, `VAD`) + dependency-injected `ProviderRegistry`. | Direct imports of Faster-Whisper, Piper, and OpenAI SDKs in API route handlers. | Decouples runtime from hardware; allows offline CI testing with deterministic mocks; supports Apple Silicon (Metal) and PC (CUDA). | Slightly higher initial boilerplate; requires implementing mock fixtures for every new contract. |
+| **ADR 0003: Provider Interfaces & Registry** *(Accepted)* | Abstract base classes (`ASR`, `TTS`, `LLM`, `VAD`) + dependency-injected `ProviderRegistry`. | Direct imports of concrete speech and AI SDKs in API route handlers. | Decouples runtime from hardware; allows offline CI testing with deterministic mocks; supports Apple Silicon (Metal/MLX) in production. *(Historical note: initial dual-platform planning across Mac and PC/CUDA was superseded by DEC-0026).* | Slightly higher initial boilerplate; requires implementing mock fixtures for every new contract. |
 | **Zero-Dependency Shared Audio Utils** *(Approved)* | Python stdlib `array` module for 16kHz PCM-to-float32 normalization. | Heavy reliance on `numpy` or `scipy` in core packages. | Keeps lightweight microservices and utility scripts free of heavy C-extensions until real inference engines are imported. | Pure Python generator comprehension during conversion is slightly slower than vectorized NumPy C-loops on massive audio buffers. |
-| **Bounded ASR Concurrency** *(Approved)* | Bounded execution via `asr_max_concurrency: int = 1` in Settings. | Unbounded parallel `asyncio.to_thread` execution. | CTranslate2 and MLX inference are compute-bound and multi-threaded; unconstrained parallel calls exhaust RAM/VRAM. | Simultaneous requests must queue behind an async semaphore, increasing queue latency under load. |
+| **Bounded ASR Concurrency** *(Approved)* | Bounded execution via `asr_max_concurrency: int = 1` in Settings. | Unbounded parallel `asyncio.to_thread` execution. | Speech inference is compute-bound and multi-threaded; unconstrained parallel calls exhaust RAM. | Simultaneous requests must queue behind an async semaphore, increasing queue latency under load. |
 | **Append-Only Ledger Safety** *(Approved - Planned S3)* | Immutable transaction entries; corrections and reversals are new compensating rows. | In-place SQL `UPDATE` / `DELETE` on transaction balances. | Financial auditability; guarantees zero data loss and simple offline synchronization conflict resolution. | Queries for current balance require aggregating transaction logs (mitigated by read-optimized balance snapshots). |
 | **Deterministic Number Parsing** *(Approved - Planned S2)* | Rule-based grammar and regex parser for Indian currency numbers. | Delegating number extraction to LLM prompts. | **Money safety:** LLMs hallucinate, suffer prompt injection, and struggle with Hindi compound numbers (*dhai sau* = 250). | Requires writing and maintaining exhaustive grammatical rule sets for Hindi, Hinglish, and English numeric terms. |
 
@@ -471,8 +471,8 @@ Interview Topics:
 - **What the interviewer is testing:** Knowledge of AI runtimes, quantization, unified memory, and edge hardware trade-offs.
 - **Suggested Answer:**
   > "While Faster-Whisper (CTranslate2) is common on x86/CUDA systems, BolKhata made a firm platform decision to standardize physical execution on the Apple Silicon MacBook Air M5 (16 GB unified memory).
-  > 1. **Unified Memory Architecture:** Apple Silicon allows the M-series CPU, GPU, and Neural Engine to access the same unified memory pool without PCIe bus transfers between host RAM and GPU VRAM.
-  > 2. **Native Metal Acceleration:** Apple's MLX framework compiles and executes Whisper computation graphs natively on Apple Silicon Metal cores, yielding faster inference and lower latency than running CTranslate2 on Mac CPUs.
+  > 1. **Unified Memory Architecture:** Apple Silicon allows the M-series CPU and Metal GPU to access the same physical memory pool directly without PCIe host-to-device bus transfer overhead.
+  > 2. **Native Metal Acceleration:** Apple's MLX framework compiles and executes Whisper computation graphs natively on Apple Silicon Metal cores. Note that real MLX inference is scheduled for Stage 2, and runtime throughput, latency, and memory footprints remain **unmeasured** until benchmarked on target hardware.
   > 3. **Thermal and Operational Fit:** A MacBook Air is fanless, completely silent, and highly power-efficient, making it physically well-suited to hot, dusty, noisy Indian kirana store counters.
   > 4. **Minimal Dependency Graph:** Dropping dual-stack CUDA/CTranslate2 abstractions eliminated dependency bloat and configuration drift."
 - **Deeper Follow-Up:** How does `initial_prompt` improve transcription accuracy in noisy kirana stores?
@@ -601,7 +601,7 @@ Interview Topics:
 - **Suggested Answer:**
   > "NumPy is a large C-extension dependency (tens of megabytes) that requires platform-specific wheels and compilation. In minimal container environments, cloud functions, or lightweight client utilities, requiring NumPy just to convert a few thousand PCM audio bytes to float32 introduces unnecessary bloat.
   > Python's standard library `array` module (`array.array('h')` for signed 16-bit integers and `array.array('f')` for 32-bit floats) implements Python's buffer protocol directly in C. It supports fast byte parsing via `.frombytes()`, native endian swapping via `.byteswap()`, and contiguous memory allocation without a single third-party dependency.
-  > Concrete ASR engines (like CTranslate2) accept buffer protocol objects directly, allowing our shared audio utilities to remain completely zero-dependency."
+  > Our shared audio utilities remain completely zero-dependency. In the planned MLX adapter, the adapter will convert these normalized float samples into the input representation required by MLX-Whisper; any NumPy conversion or memory-copy optimization will be verified and benchmarked inside the adapter boundary."
 - **Deeper Follow-Up:** What are the exact mathematical normalization bounds implemented in `pcm_to_float32`?
 - **What to show in code:** [backend/src/bolkhata/asr/common.py](../backend/src/bolkhata/asr/common.py) and [tests/unit/test_asr_common.py](../tests/unit/test_asr_common.py).
 
@@ -668,7 +668,8 @@ The following table records the verifiable Git commit history on the repository:
 | `b6b7461` | `feat/s1-provider-foundation` | `docs: add engineering knowledge base and deep dive` | Created `docs/decision.md`, `docs/architecture-deep-dive.md`, `docs/README.md`, and updated `agent.md`. |
 | `b261680` | `feat/s1-provider-foundation` | `docs: fix repository-relative documentation links` | Made all documentation file links portable using repository-relative Markdown paths. |
 | `f84abff` | `feat/s1-provider-foundation` | `feat(s1): define ASR runtime config and confidence semantics` | Honest confidence semantics (`float \| None`), vocabulary-prompt contract, validated ASR runtime settings, platform-specific optional dependencies, and 38 new unit tests. |
-| *(Pending)* | `feat/s1-provider-foundation` | `fix(s1): make ASR configuration Apple Silicon only` | Standardized ASR configuration exclusively on Apple Silicon (MLX), removed Faster-Whisper, CUDA, and CTranslate2 dependencies, simplified Settings, and updated documentation. |
+| `e252994` | `feat/s1-provider-foundation` | `fix(s1): make ASR configuration Apple Silicon only` | Standardized ASR configuration exclusively on Apple Silicon (MLX), removed Faster-Whisper, CUDA, and CTranslate2 dependencies, simplified Settings, and updated documentation. |
+| *(Pending)* | `feat/s1-provider-foundation` | `docs: align ASR documentation with Apple Silicon architecture` | Synchronized documentation with Apple Silicon-only architecture, made initial_prompt semantics and licensing notes precise, and eliminated unmeasured performance claims. |
 
 ---
 

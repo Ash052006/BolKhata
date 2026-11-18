@@ -43,7 +43,7 @@ This guide prepares you to explain, defend, and deep-dive into BolKhata during h
 > BolKhata solves this with three non-negotiable architectural principles:
 > 1. **Money Safety:** Spoken numbers like *'dhai sau'* (250) are parsed by deterministic rule-based algorithms, never by hallucination-prone LLMs.
 > 2. **Explicit Spoken Confirmation:** Every entry is read back aloud (*'Sharma ji, 250 rupaye udhaar. Sahi hai?'*) before anything is saved.
-> 3. **Provider-Based Multi-Platform Architecture:** The core system is completely decoupled from machine learning weights using abstract contracts and dependency injection. We can run MLX on Apple Silicon Macs, CTranslate2 on NVIDIA/PC nodes, and deterministic zero-network mocks in CI that run 96 tests in under 150 milliseconds."
+> 3. **Provider-Based Architecture & Hardware Isolation:** The core system is completely decoupled from machine learning weights using abstract contracts and dependency injection. Real ASR execution is planned exclusively for Apple Silicon Macs using MLX, while deterministic zero-network mocks in CI run 129 tests in under 200 milliseconds across any development platform without downloading weights."
 
 ### The 3-Minute Technical Architecture Walkthrough
 > "Architecturally, BolKhata is built as a FastAPI async application coupled with a React/TypeScript voice PWA in a monorepo.
@@ -76,8 +76,8 @@ This guide prepares you to explain, defend, and deep-dive into BolKhata during h
 
 ### Q-C1: Why must synchronous machine learning inference never run directly on the asyncio event loop?
 1. **What the interviewer wants to evaluate:** Deep understanding of the Python GIL, event loop mechanics, thread starvation, and async I/O.
-2. **Technically correct answer:** The `asyncio` event loop runs on a single OS thread. It relies on cooperative multitasking where tasks yield control via `await`. Neural network inference engines (such as Whisper or CTranslate2) are CPU/GPU-bound matrix operations that execute continuous computation for hundreds of milliseconds. If called synchronously inside an async route or WebSocket handler, the execution never yields to the event loop. The entire process freezes: WebSocket heartbeats are dropped, incoming TCP frames buffer and disconnect, HTTP health checks time out, and all other concurrent users are starved.
-3. **BolKhata concrete example:** All compute-bound inference calls in provider adapters are scheduled via `asyncio.to_thread()`, moving execution to Python's background worker thread pool where native C++ threads release the GIL.
+2. **Technically correct answer:** The `asyncio` event loop runs on a single OS thread. It relies on cooperative multitasking where tasks yield control via `await`. Neural network speech inference engines (such as Whisper via MLX) are compute-bound matrix operations that execute continuous computation for hundreds of milliseconds. If called synchronously inside an async route or WebSocket handler, the execution never yields to the event loop. The entire process freezes: WebSocket heartbeats are dropped, incoming TCP frames buffer and disconnect, HTTP health checks time out, and all other concurrent users are starved.
+3. **BolKhata concrete example:** All compute-bound inference calls in provider adapters are scheduled via `asyncio.to_thread()`, moving execution to Python's background worker thread pool where native worker threads release the GIL.
 4. **Follow-up question:** What happens if an awaiting coroutine is cancelled while the worker thread is running `asyncio.to_thread()`?
 5. **Deeper follow-up answer:** Python cannot kill native OS threads. Cancelling the coroutine raises `asyncio.CancelledError` immediately on the event loop, unblocking the calling task, but the underlying worker thread continues running until native C++ inference completes. Because abandoned tasks still consume compute, we enforce bounded concurrency with semaphores (`asr_max_concurrency`) so abandoned requests do not pile up.
 6. **Relevant files/tests:** `docs/adr/0003-provider-interfaces-and-registry.md`, `backend/src/bolkhata/asr/base.py`.
@@ -94,12 +94,12 @@ We implemented this in `bolkhata.asr.common.pcm_to_float32` using Python's stand
 - We parse bytes into `array.array('h')` (signed 16-bit).
 - On big-endian architectures, we call `.byteswap()` to guarantee little-endian decoding.
 - We divide each sample by `32768.0`. This maps $-32768$ exactly to $-1.0$, $0$ to $0.0$, and $+32767$ to $32767/32768.0 \approx +0.99997$, strictly bounded in $[-1.0, 1.0]$.
-We avoided NumPy because NumPy is a large 50+ MB C-extension dependency. Using standard library `array` keeps shared utilities completely hermetic, while implementing the Python buffer protocol so that CTranslate2 or PyTorch can read the memory directly without copying.
+We avoided NumPy in shared utilities because NumPy is a large C-extension dependency. Using Python's standard-library `array` keeps core audio utilities completely hermetic and zero-dependency. In the planned MLX adapter, the adapter itself will convert these normalized samples into the input representation required by MLX-Whisper; any NumPy conversion or memory-copy optimization will be verified in the adapter and benchmarked against real audio.
 3. **BolKhata concrete example:** `backend/src/bolkhata/asr/common.py`.
 4. **Follow-up question:** Why divide by 32768.0 instead of 32767.0?
 5. **Deeper follow-up answer:** Dividing by 32767.0 causes the minimum possible 16-bit signed integer ($-32768$) to map to $-1.0000305$. In neural audio encoders (like Whisper's log-mel filterbanks), values strictly outside $[-1.0, 1.0]$ cause clipping warnings, gradient instability, or numerical overflow. Dividing by 32768.0 guarantees that all values fall within $[-1.0, 1.0]$.
 6. **Relevant files/tests:** `tests/unit/test_asr_common.py` (specifically `test_normalization_boundaries`).
-7. **What not to claim:** Do not claim that standard-library `array` generator division is faster than NumPy on a 1-hour audio file; on short 3-second kirana voice clips, the execution time is sub-millisecond, making dependency reduction the superior trade-off.
+7. **What not to claim:** Do not claim that the standard-library `array` buffer can be passed directly to CTranslate2 or PyTorch as an implemented integration; MLX-Whisper is planned, not yet implemented, and `MockASRProvider` remains the only currently working provider. Do not claim standard-library `array` generator division is faster than NumPy on a 1-hour audio file; on short kirana voice clips, execution is sub-millisecond, making dependency reduction the superior trade-off.
 
 ### Q-D2: Why does BolKhata treat ASR confidence as `float | None` rather than computing `exp(avg_logprob)`?
 1. **What the interviewer wants to evaluate:** Statistical calibration, ASR decoder mechanics, and honest contract design for safety-critical systems.
@@ -112,12 +112,12 @@ We avoided NumPy because NumPy is a large 50+ MB C-extension dependency. Using s
 
 ### Q-D3: How does `initial_prompt` work for vocabulary biasing in Whisper, and how does it differ from an LLM prompt?
 1. **What the interviewer wants to evaluate:** Understanding of acoustic decoder conditioning vs natural language prompt engineering.
-2. **Technically correct answer:** An LLM prompt is a natural language instruction telling the model what task to perform. In Whisper, `initial_prompt` does not give instructions. Instead, it injects preceding context tokens into the autoregressive text decoder. When the decoder generates words, the self-attention mechanism attends to these prompt tokens, making it acoustically biased toward specific spelling, terminology, and domain vocabulary (*"Sharma ji, udhaar, jama, chawal, pachaas"*). This solves acoustic ambiguity in noisy kirana shops without fine-tuning weights.
+2. **Technically correct answer:** An LLM prompt is an open-ended instruction telling the model what task to perform. In Whisper, `initial_prompt` does not give instructions. Instead, it injects preceding context tokens into the autoregressive text decoder. When the decoder generates words, the self-attention mechanism attends to these prompt tokens, biasing the language modeling prior toward specific spelling, terminology, and domain vocabulary (*"Sharma ji, udhaar, jama, chawal, pachaas"*). However, `initial_prompt` does not guarantee correct recognition and does not replace acoustic evidence. Excessive or incorrect prompt context can bias the transcript incorrectly or increase hallucination risk.
 3. **BolKhata concrete example:** `initial_prompt` parameter in `ASRProvider.transcribe()` (`backend/src/bolkhata/asr/base.py`).
 4. **Follow-up question:** What happens if the `initial_prompt` is too long?
 5. **Deeper follow-up answer:** Whisper decodes text in 30-second context windows (up to 448 tokens). Long prompts consume decoder token context, reducing the space available for transcribing speech. Therefore, initial prompts should be concise domain token lists rather than long prose.
 6. **Relevant files/tests:** `backend/src/bolkhata/asr/base.py`, `tests/unit/test_providers_mock.py`.
-7. **What not to claim:** Do not claim initial prompts can force Whisper to output words that were never spoken; it biases spelling and vocabulary recognition, but does not overwrite clear acoustic signals.
+7. **What not to claim:** Do not claim that `initial_prompt` is an infallible constraint or that it cannot cause hallucinations; incorrect or excessive context can bias the decoder to hallucinate suggested words that were never spoken. Vocabulary prompting must be empirically evaluated using real Hindi/Hinglish audio, including negative examples where a suggested word was not spoken.
 
 ---
 
@@ -205,7 +205,7 @@ Using pytest-asyncio, we write tests that:
 
 ### Challenge 3: "Why did you drop Windows/NVIDIA CUDA support and standardize exclusively on Apple Silicon?"
 - **Defense:**
-  In local edge AI, hardware selection dictates runtime efficiency. A kirana store counter requires compact, silent, fanless, and power-efficient hardware. The Apple Silicon MacBook Air M5 provides 16 GB of high-bandwidth unified memory accessible simultaneously by CPU, GPU, and Neural Engine without PCIe host-to-device bus transfer bottlenecks. Maintaining dual-stack configuration (CUDA, CTranslate2, Faster-Whisper) alongside Apple's MLX created unnecessary complexity, configuration bloat, and leaky abstractions. Standardizing on Apple Silicon and MLX allows us to optimize directly for Metal unified memory and keep our dependency graph lean.
+  In local edge AI, hardware selection dictates runtime efficiency. A kirana store counter requires compact, silent, fanless, and power-efficient hardware. The Apple Silicon MacBook Air M5 provides 16 GB of high-bandwidth unified memory accessible directly by the CPU and Metal GPU without PCIe host-to-device bus transfer bottlenecks. Maintaining dual-stack configuration (CUDA, CTranslate2, Faster-Whisper) alongside Apple's MLX created unnecessary complexity, configuration bloat, and leaky abstractions. Standardizing on Apple Silicon and MLX allows us to optimize directly for Metal unified memory and keep our dependency graph lean. Note that MLX-Whisper is planned for Stage 2, and runtime performance, latency, and memory footprints remain unmeasured until physical benchmarks are executed against the implemented adapter.
 
 ### Challenge 4: "What if two shopkeeper devices attempt to update the same customer simultaneously?"
 - **Defense:**
@@ -213,13 +213,13 @@ Using pytest-asyncio, we write tests that:
 
 ### Challenge 5: "Why did you default ASR concurrency to 1? Isn't that terrible for scalability?"
 - **Defense:**
-  On local edge nodes or developer laptops, neural inference engines (Whisper / MLX) internally saturate all available CPU/GPU cores using multi-threaded matrix multiplication. If you accept two concurrent speech inferences on a 4-core machine, thread contention causes CPU cache thrashing, doubling the latency for both users. Serializing inference via an async semaphore guarantees deterministic, minimum latency per request. On production clusters with multi-GPU hardware, concurrency is scaled via `ASR_MAX_CONCURRENCY` in `.env`.
+  On local edge nodes or developer laptops, neural inference engines internally saturate available CPU/GPU cores during multi-threaded matrix multiplication. If you accept two concurrent speech inferences on a constrained machine, thread contention causes CPU cache thrashing, doubling the latency for both users. Serializing inference via an async semaphore guarantees deterministic, minimum latency per request. On production clusters, concurrency is scaled via `ASR_MAX_CONCURRENCY` in `.env`.
 
 ### Challenge 6: "What are the biggest limitations of the current implementation?"
 - **Defense (Honest & Evidence-Based):**
-  1. Concrete speech recognition adapter (MLX-Whisper on Apple Silicon) is not yet merged; we are currently running on verified deterministic mocks and audio utilities.
+  1. Concrete speech recognition adapter (MLX-Whisper on Apple Silicon) is not yet merged; we are currently running on verified deterministic mocks and audio utilities (`MockASRProvider` is the only active provider).
   2. The push-to-talk WebSocket loop is not yet connected to the frontend UI.
-  3. Acoustic accuracy (WER) on heavily accented rural Hindi dialects in extreme background noise has not yet been benchmarked on physical hardware.
+  3. Acoustic accuracy (WER), memory footprint, and latency budgets on physical Apple Silicon hardware have not yet been benchmarked.
 
 ---
 
