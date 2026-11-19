@@ -56,7 +56,7 @@ from bolkhata.asr.mlx_whisper import (
 from bolkhata.asr.mock import MockASRProvider
 from bolkhata.config.settings import Settings
 
-PINNED_REVISION = "45f3915923c7a79a5a5b5a7d909d39aeb0e5630e"
+PINNED_REVISION = "45f3915923c7a79a5a5b5a7d909d39aeb0e5630e"  # pragma: allowlist secret
 
 
 @pytest.fixture

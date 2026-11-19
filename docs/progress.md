@@ -4,7 +4,7 @@
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 > **Last Updated:** Sprint S1 Stage 2 (Prompt 2 — MLX-Whisper Provider Implementation)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `0d98879f6f8daa4ce268f9310210c89ce12e33ad` (base), Pending: `feat(s1): implement MLX Whisper ASR provider`
+> **Latest Commit:** `8f64dc79795dbc45f35e936a994dc1f5716c29b9`
 
 ---
 
@@ -750,7 +750,7 @@ The following table records the verifiable Git commit history on the repository:
 | `f84abff` | `feat/s1-provider-foundation` | `feat(s1): define ASR runtime config and confidence semantics` | Honest confidence semantics (`float \| None`), vocabulary-prompt contract, validated ASR runtime settings, platform-specific optional dependencies, and 38 new unit tests. |
 | `e252994` | `feat/s1-provider-foundation` | `fix(s1): make ASR configuration Apple Silicon only` | Standardized ASR configuration exclusively on Apple Silicon (MLX), removed Faster-Whisper, CUDA, and CTranslate2 dependencies, simplified Settings, and updated documentation. |
 | `0d98879` | `feat/s1-provider-foundation` | `docs: align ASR documentation with Apple Silicon architecture` | Synchronized documentation with Apple Silicon-only architecture, made initial_prompt semantics and licensing notes precise, and eliminated unmeasured performance claims. |
-| *(Pending)* | `feat/s1-provider-foundation` | `feat(s1): implement MLX Whisper ASR provider` | Implemented `MLXWhisperASRProvider` with bounded concurrency, nanobind-safe runtime loader injection, off-loop shutdown, registry wiring, 21 hermetic unit tests, and comprehensive documentation across DEC-0027, architecture deep dive, and interview guide. |
+| `8f64dc7` | `feat/s1-provider-foundation` | `feat(s1): implement MLX Whisper ASR provider` | Implemented `MLXWhisperASRProvider` with bounded concurrency, nanobind-safe runtime loader injection, off-loop shutdown, registry wiring, 21 hermetic unit tests, and comprehensive documentation across DEC-0027, architecture deep dive, and interview guide. |
 
 ---
 
