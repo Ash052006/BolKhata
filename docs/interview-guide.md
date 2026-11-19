@@ -83,6 +83,16 @@ This guide prepares you to explain, defend, and deep-dive into BolKhata during h
 6. **Relevant files/tests:** `docs/adr/0003-provider-interfaces-and-registry.md`, `backend/src/bolkhata/asr/base.py`.
 7. **What not to claim:** Do not claim that calling `task.cancel()` frees GPU/CPU memory immediately.
 
+### Q-C2: How does `MLXWhisperASRProvider` prevent semaphore slot leakage and capacity oversubscription when caller coroutines are cancelled?
+1. **What the interviewer wants to evaluate:** Concurrency design under async cancellation, thread lifecycle management, and threadsafe callback scheduling.
+2. **Technically correct answer:** Standard Python async context managers (`async with semaphore:`) automatically call `semaphore.release()` if the enclosing coroutine raises `asyncio.CancelledError`. However, native synchronous worker threads (executing MLX matrix operations) cannot be interrupted by Python coroutine cancellation. If the semaphore were released upon coroutine cancellation, a new request could immediately acquire the slot, causing multiple heavy model executions to run concurrently and saturate Apple Silicon unified memory.
+In `MLXWhisperASRProvider`, we decouple semaphore release from coroutine lifecycle. The concurrency slot is acquired before scheduling the thread, but is released **strictly and exclusively** within the OS worker thread's `finally:` block via `loop.call_soon_threadsafe(sem.release)`. If the caller coroutine is cancelled, the coroutine exits with `CancelledError` without releasing the semaphore. The slot remains occupied until the native thread completes.
+3. **BolKhata concrete example:** In `backend/src/bolkhata/asr/mlx_whisper.py`, `slot_owned_by_thread` guards whether the thread or the coroutine owns the slot. If task submission fails before the thread runs, the coroutine cleans up; once the thread starts, the thread's `finally:` handler guarantees atomic slot release.
+4. **Follow-up question:** How do you test this deterministically without fragile timing sleeps?
+5. **Deeper follow-up answer:** In `tests/unit/test_asr_mlx_whisper.py::test_cancellation_does_not_release_concurrency_slot_prematurely`, we use OS `threading.Event` barriers. Worker 1 signals entry and blocks on an event gate. The test cancels Task 1's coroutine and starts Task 2. Because Worker 1's thread is still blocked on the gate, Task 2 is blocked on the semaphore. Only when Worker 1's gate is opened does Worker 1 finish, releasing the semaphore so Task 2 can proceed.
+6. **Relevant files/tests:** `backend/src/bolkhata/asr/mlx_whisper.py`, `tests/unit/test_asr_mlx_whisper.py`.
+7. **What not to claim:** Do not claim that cancelling the task kills the running thread.
+
 ---
 
 ## Topic D — AI, Speech Recognition & Signal Processing
@@ -99,7 +109,7 @@ We avoided NumPy in shared utilities because NumPy is a large C-extension depend
 4. **Follow-up question:** Why divide by 32768.0 instead of 32767.0?
 5. **Deeper follow-up answer:** Dividing by 32767.0 causes the minimum possible 16-bit signed integer ($-32768$) to map to $-1.0000305$. In neural audio encoders (like Whisper's log-mel filterbanks), values strictly outside $[-1.0, 1.0]$ cause clipping warnings, gradient instability, or numerical overflow. Dividing by 32768.0 guarantees that all values fall within $[-1.0, 1.0]$.
 6. **Relevant files/tests:** `tests/unit/test_asr_common.py` (specifically `test_normalization_boundaries`).
-7. **What not to claim:** Do not claim that the standard-library `array` buffer can be passed directly to CTranslate2 or PyTorch as an implemented integration; MLX-Whisper is planned, not yet implemented, and `MockASRProvider` remains the only currently working provider. Do not claim standard-library `array` generator division is faster than NumPy on a 1-hour audio file; on short kirana voice clips, execution is sub-millisecond, making dependency reduction the superior trade-off.
+7. **What not to claim:** Do not claim that the standard-library `array` buffer can be passed directly to CTranslate2 or PyTorch as an implemented integration; the concrete MLX-Whisper adapter is implemented in `bolkhata.asr.mlx_whisper` and verified with hermetic unit tests; real hardware inference evaluation remains pending. Do not claim standard-library `array` generator division is faster than NumPy on a 1-hour audio file; on short kirana voice clips, execution is sub-millisecond, making dependency reduction the superior trade-off.
 
 ### Q-D2: Why does BolKhata treat ASR confidence as `float | None` rather than computing `exp(avg_logprob)`?
 1. **What the interviewer wants to evaluate:** Statistical calibration, ASR decoder mechanics, and honest contract design for safety-critical systems.
@@ -118,6 +128,16 @@ We avoided NumPy in shared utilities because NumPy is a large C-extension depend
 5. **Deeper follow-up answer:** Whisper decodes text in 30-second context windows (up to 448 tokens). Long prompts consume decoder token context, reducing the space available for transcribing speech. Therefore, initial prompts should be concise domain token lists rather than long prose.
 6. **Relevant files/tests:** `backend/src/bolkhata/asr/base.py`, `tests/unit/test_providers_mock.py`.
 7. **What not to claim:** Do not claim that `initial_prompt` is an infallible constraint or that it cannot cause hallucinations; incorrect or excessive context can bias the decoder to hallucinate suggested words that were never spoken. Vocabulary prompting must be empirically evaluated using real Hindi/Hinglish audio, including negative examples where a suggested word was not spoken.
+
+### Q-D4: Why did testing with `unittest.mock.patch.dict(sys.modules)` cause fatal `SIGABRT` crashes in `mlx.core`, and how did you resolve it?
+1. **What the interviewer wants to evaluate:** C-extension lifecycle in CPython, `nanobind` internals, and test isolation design.
+2. **Technically correct answer:** Apple MLX is written in C++ and binds to Python via `nanobind`. `nanobind` maintains global C++ registry tables for Python types and enumerations. In early tests, missing optional dependencies were simulated with `patch.dict(sys.modules, {"mlx_whisper": None})`. When `initialize()` attempted `import mlx.core`, the native dynamic library was loaded via `dlopen`. When the test exited, `patch.dict` restored `sys.modules`, removing `mlx.core` from Python's module table. However, compiled C-extensions cannot be unloaded from memory. A subsequent test attempted `import mlx.core` again, causing Python to call `PyInit_core()` a second time. `nanobind` detected duplicate enum registrations in its static C++ tables and called `abort()`, terminating the test runner with `SIGABRT` (code 134).
+We resolved this by replacing global module patching with an explicit, injectable `runtime_loader` interface (`MLXRuntime`). Tests inject fake runtime dependencies or failure callables directly into the provider constructor, completely eliminating `sys.modules` mutation.
+3. **BolKhata concrete example:** `backend/src/bolkhata/asr/mlx_whisper.py` (`load_mlx_runtime`, `MLXRuntime`) and `tests/unit/test_asr_mlx_whisper.py`.
+4. **Follow-up question:** Does importing `bolkhata.asr.mlx_whisper` at module level import `mlx.core`?
+5. **Deeper follow-up answer:** No. All runtime imports are deferred until `initialize()` is executed, keeping the base package load zero-dependency and CI hermetic.
+6. **Relevant files/tests:** `backend/src/bolkhata/asr/mlx_whisper.py`, `tests/unit/test_asr_mlx_whisper.py` (`test_lazy_imports_do_not_import_mlx_runtime`).
+7. **What not to claim:** Do not claim that reloading native dynamic C-extensions is safe in Python; C-extension reloading is fundamentally unsupported by CPython's architecture.
 
 ---
 
@@ -154,6 +174,18 @@ It applies three layers of scrubbing:
 5. **Deeper follow-up answer:** We wrote comprehensive unit tests verifying that phone numbers and tokens are replaced with `[REDACTED]`. Because `detect-secrets` scans all repository files, our synthetic test tokens initially triggered false positives. Rather than disabling the scanner, we used line-level allowlisting in `.secrets.baseline` to maintain 100% detector rigor across production code.
 6. **Relevant files/tests:** `tests/unit/test_logging_redaction.py`, `.secrets.baseline`.
 7. **What not to claim:** Do not claim we encrypt logs on disk; log encryption is handled by host infrastructure, while our code ensures scrubbing before emission.
+
+### Q-F2: How does `shutdown()` coordinate with active worker threads without deadlocking or blocking the asyncio event loop?
+1. **What the interviewer wants to evaluate:** Async/thread lifecycle boundaries, event-loop non-blocking invariants, and idempotent shutdown.
+2. **Technically correct answer:** When `shutdown()` is called while worker threads are executing, it must prevent new requests, await existing workers, and release executor resources. If `all_workers_done.wait()` or `executor.shutdown(wait=True)` is called directly inside an async function on the event loop thread, it blocks the entire loop, preventing other coroutines or callbacks (such as `loop.call_soon_threadsafe(sem.release)`) from processing.
+In `MLXWhisperASRProvider`, `shutdown()` executes in two phases:
+1. **Synchronous Immediate Marking:** Before any `await` suspension point, it sets `self._is_shutdown = True` and signals `shutdown_started_event`. Any queued or new `transcribe()` call immediately rejects with `RuntimeError`.
+2. **Off-Loop Thread Joining:** The blocking thread join `all_workers_done.wait()` and `executor.shutdown(wait=True)` are executed off the event loop thread via `asyncio.to_thread(_cleanup_executor, ...)`. The event loop remains responsive and callbacks can execute cleanly until shutdown completes.
+3. **BolKhata concrete example:** `backend/src/bolkhata/asr/mlx_whisper.py` (`shutdown` and `_cleanup_executor`).
+4. **Follow-up question:** What happens if `shutdown()` is called multiple times concurrently?
+5. **Deeper follow-up answer:** The method is idempotent. If `self._is_shutdown` or not `self._is_initialized`, it returns immediately.
+6. **Relevant files/tests:** `backend/src/bolkhata/asr/mlx_whisper.py`, `tests/unit/test_asr_mlx_whisper.py::test_shutdown_waits_for_active_workers_and_prevents_new_calls`.
+7. **What not to claim:** Do not claim that calling `shutdown()` terminates running synchronous inferences immediately; it safely drains and joins running threads.
 
 ---
 

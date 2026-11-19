@@ -404,12 +404,18 @@ class TestProviderRegistry:
         with pytest.raises(ValueError, match="ASR_MAX_CONCURRENCY must be at least 1"):
             Settings(asr_max_concurrency=-1)
 
-    def test_future_provider_raises_not_implemented_in_stage1(self) -> None:
+    def test_mlx_whisper_provider_selection_in_registry(self) -> None:
+        from bolkhata.asr.mlx_whisper import MLXWhisperASRProvider
+
         settings_asr = Settings(asr_provider="mlx_whisper")
         reg_asr = ProviderRegistry(settings_asr)
-        with pytest.raises(ProviderNotImplementedError, match="Stage 1"):
-            _ = reg_asr.asr
+        asr_prov = reg_asr.asr
+        assert isinstance(asr_prov, MLXWhisperASRProvider)
+        # Verify provider is lazily constructed and not yet initialized
+        assert not asr_prov.is_initialized
+        assert not asr_prov.is_shutdown
 
+    def test_future_provider_raises_not_implemented_in_stage1(self) -> None:
         # Faster-Whisper is no longer a supported provider (Apple Silicon MLX only)
         with pytest.raises(ValueError, match="ASR_PROVIDER must be one of"):
             Settings(asr_provider="faster_whisper")

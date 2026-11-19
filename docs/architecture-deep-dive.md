@@ -71,7 +71,7 @@ flowchart TD
 
     subgraph Providers ["Provider Registry (Dependency Injection)"]
         REG["ProviderRegistry<br/>(Lifecycle & DI)<br/><b>[Implemented - S1]</b>"]
-        ASR_MOD["ASR Provider<br/>(Mock <b>[Done]</b> / MLX (Apple Silicon) <i>[Planned]</i>)"]
+        ASR_MOD["ASR Provider<br/>(Mock <b>[Done]</b> / MLX (Apple Silicon) <b>[Implemented - S1]</b>)"]
         VAD_MOD["VAD Provider<br/>(Mock <b>[Done]</b> / Silero <i>[Planned]</i>)"]
         TTS_MOD["TTS Provider<br/>(Mock <b>[Done]</b> / Piper, Edge <i>[Planned]</i>)"]
         LLM_MOD["LLM Provider<br/>(Mock <b>[Done]</b> / Local or API <i>[Planned]</i>)"]
@@ -124,6 +124,7 @@ BolKhata/
 │   │       ├── asr/            # Speech recognition contracts and adapters
 │   │       │   ├── base.py     # Abstract ASRProvider, ASRResult dataclass
 │   │       │   ├── common.py   # PCM normalization and audio math utilities
+│   │       │   ├── mlx_whisper.py # Concrete MLX-Whisper ASR provider for Apple Silicon
 │   │       │   ├── mock.py     # Deterministic MockASRProvider
 │   │       │   └── vad.py      # Abstract VADProvider and MockVADProvider
 │   │       ├── common/         # Cross-cutting foundational utilities
@@ -269,12 +270,15 @@ class BaseProvider(ABC):
   - Empty audio input returns an empty result: `ASRResult(text="", language=..., confidence=None, duration_ms=0.0, words=())`.
   - `words` is deeply immutable (`tuple[WordTiming, ...]`), preventing accidental in-place mutation by downstream pipeline filters.
   - `initial_prompt` supplies textual context tokens to Whisper's autoregressive decoder. It can bias recognition toward domain vocabulary (*Sharma ji, udhaar, jama, chawal*), but does not guarantee correct recognition and cannot replace acoustic evidence. Excessive or incorrect prompt context can bias the transcript incorrectly or increase hallucination risk. Operational efficacy must be evaluated on real audio using both positive and negative controls.
-- **Hardware Target & Real Engine Architecture `[PLANNED]`:**
-  - Real ASR execution is planned exclusively for the **Apple Silicon MacBook Air M5** (16 GB unified memory) using Apple's MLX machine learning framework (`mlx-whisper`).
+- **Hardware Target & Real Engine Architecture (`MLXWhisperASRProvider`) `[Implemented - S1 Stage 2]`:**
+  - Real ASR execution is designed exclusively for the **Apple Silicon MacBook Air M5** (16 GB unified memory) using Apple's MLX machine learning framework (`mlx-whisper`).
+  - Implemented in `bolkhata.asr.mlx_whisper.MLXWhisperASRProvider`.
   - Unified memory architecture allows the CPU and Metal GPU to access model weights directly in unified RAM without PCIe host-to-device bus transfer overhead. (MLX execution operates across CPU and Metal GPU cores; claims of Neural Engine / ANE utilization are unproven and excluded).
-  - Model memory footprint, latency budget compliance, and Word Error Rate (WER) remain **unmeasured** until the real MLX adapter is implemented and benchmarked on target hardware.
-  - Windows/NVIDIA/CUDA and Faster-Whisper configurations were superseded and completely removed (see [DEC-0026](decision.md#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime)).
-  - Real MLX neural inference is scheduled for Stage 2; base package load and CI remain 100% offline and platform-independent using deterministic mocks (`MockASRProvider` is currently the only active ASR engine).
+  - Runtime dependencies (`mlx.core`, `mlx_whisper`, `numpy`) are lazily loaded at initialization via `MLXRuntime` and an injectable `runtime_loader`, ensuring core imports and CI remain 100% offline and free of native MLX imports.
+  - Bounded concurrency with cancellation-safe tracking: synchronous MLX inference runs on a dedicated thread pool bounded by `asr_max_concurrency`. The semaphore slot is released only after OS thread completion via `loop.call_soon_threadsafe(sem.release)`; cancelling an awaiting coroutine does not prematurely release capacity while the OS thread is executing.
+  - Double-checked shutdown: Requests waiting in queue re-verify shutdown after acquiring the semaphore. `shutdown()` awaits running workers and shuts down the executor off-loop via `asyncio.to_thread(_cleanup_executor, ...)`, preventing event loop blocking.
+  - Model resolution strictly enforces an immutable 40-character commit hash (`45f3915923c7a79a5a5b5a7d909d39aeb0e5630e`) against Hugging Face repository `mlx-community/whisper-small-mlx`; offline mode (`asr_offline_mode=True`) prevents network access.
+  - Model memory footprint, latency budget compliance, and Word Error Rate (WER) remain **unmeasured** until benchmarked on target hardware during evaluation milestones.
 
 ### 2. `TTSProvider` Contract (`bolkhata.tts.base`)
 - **Input:** Plain text string (`str`), voice ID (`str | None`), speaking rate multiplier (`float`).
@@ -400,7 +404,7 @@ sequenceDiagram
     participant Merchant as Shopkeeper (Browser PWA)
     participant WS as WebSocket Handler
     participant VAD as Silero VAD
-    participant ASR as Faster / MLX Whisper
+    participant ASR as MLX Whisper (Apple Silicon)
     participant Parser as Deterministic Number Parser
     participant LLM as Intent Extractor
     participant Ledger as Append-Only Ledger

@@ -2,9 +2,9 @@
 
 > **Document Type:** Living Architecture, Engineering Journal & Technical Interview Preparation Guide
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
-> **Last Updated:** Sprint S1 Stage 2 (Prompt 1)
+> **Last Updated:** Sprint S1 Stage 2 (Prompt 2 — MLX-Whisper Provider Implementation)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `863b07d22635c1cc8b2942798b66e4366cea7298`
+> **Latest Commit:** `0d98879f6f8daa4ce268f9310210c89ce12e33ad` (base), Pending: `feat(s1): implement MLX Whisper ASR provider`
 
 ---
 
@@ -38,6 +38,7 @@ Whenever an implementation prompt or sprint is completed:
   - [S1 Stage 1: Provider Interfaces & Registry](#s1-stage-1-provider-interfaces--registry)
   - [S1 Stage 1: Lifecycle Hardening & Ordering Fixes](#s1-stage-1-lifecycle-hardening--ordering-fixes)
   - [S1 Stage 2 (Prompt 1): Audio Utilities & Shared ASR Settings](#s1-stage-2-prompt-1-audio-utilities--shared-asr-settings)
+  - [S1 Stage 2 (Prompt 2): MLX-Whisper ASR Provider Implementation & Stabilization](#s1-stage-2-prompt-2-mlx-whisper-asr-provider-implementation--stabilization)
 - [Section D — Important Architecture Decisions (ADRs)](#section-d--important-architecture-decisions-adrs)
 - [Section E — Current Architecture & Code Map](#section-e--current-architecture--code-map)
 - [Section F — Technical Interview Preparation](#section-f--technical-interview-preparation)
@@ -113,7 +114,7 @@ flowchart TD
 
     subgraph SpeechPipeline ["Speech & Audio Layer"]
         COMMON["Audio Utils & Settings<br/>(16kHz s16le PCM to float32)<br/><b>[Implemented - S1]</b>"]
-        ASR["ASR Provider<br/>(Mock <b>[Done]</b> / MLX (Apple Silicon) <i>[Planned]</i>)"]
+        ASR["ASR Provider<br/>(Mock <b>[Done]</b> / MLX (Apple Silicon) <b>[Implemented - S1]</b>)"]
         VAD["VAD Provider<br/>(Mock <b>[Done]</b> / Silero <i>[Planned]</i>)"]
         TTS["TTS Provider<br/>(Mock <b>[Done]</b> / Piper, Edge <i>[Planned]</i>)"]
     end
@@ -156,7 +157,7 @@ The project schedule follows the master roadmap outlined in `bolkhata-agent-prom
 | Stage | Objective | What We Do | Why It Matters | Status |
 |---|---|---|---|---|
 | **S0** | **Production Foundation** | Monorepo layout, FastAPI factory, async DB (SQLite/Postgres), health/readiness probes, structured logging with PII redaction, Docker Compose, CI, strict Ruff/mypy gates. | Eliminates technical debt early; establishes verifiable engineering baselines before introducing non-deterministic ML models. | **Completed** |
-| **S1** | **Provider Foundation & ASR Adapter** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Apple Silicon MLX ASR configuration, push-to-talk WebSocket slice. | Optimized exclusively for Apple Silicon MacBook Air (16 GB unified memory); enables 100% offline, deterministic CI testing without downloading heavy weights. | **In Progress**<br/>*(Interfaces, Registry, Mocks, Audio Utils & MLX Config Completed)* |
+| **S1** | **Provider Foundation & ASR Adapter** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Apple Silicon MLX ASR configuration and MLX-Whisper adapter, push-to-talk WebSocket slice. | Optimized exclusively for Apple Silicon MacBook Air (16 GB unified memory); enables 100% offline, deterministic CI testing without downloading heavy weights. | **In Progress**<br/>*(Interfaces, Registry, Mocks, Audio Utils, MLX Config & MLX Provider Completed)* |
 | **S2** | **Spoken-Number Parser & Evaluation Harness** | Deterministic number parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*), ground-truth audio test corpus, Word Error Rate (WER) and number extraction accuracy evaluation harness. | **Money safety:** Large language models hallucinate and fail at Indian colloquial arithmetic. Deterministic parsing guarantees mathematical correctness. | **Planned** |
 | **S3** | **DomainPack & Ledger Extraction** | Pluggable DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, append-only ledger schema, idempotency tokens. | Decouples speech pipeline from business logic; guarantees immutable financial audit trails and prevents double-posting. | **Planned** |
 | **S4** | **Read-Back, Correction & Failure Handling** | Verbal confirmation loop, state machine (IDLE, LISTENING, THINKING, SPEAKING), voice-driven transaction corrections, network failure and audio recovery flows. | Kirana shops cannot afford silent transcription mistakes; explicit verbal read-back ensures merchant trust and operational resilience. | **Planned** |
@@ -318,7 +319,44 @@ To prepare the codebase for concrete Apple Silicon speech recognition without pr
 - **Isolated MLX Optional Dependency:** Pinned `mlx-whisper = ["mlx-whisper==0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'"]` under `[project.optional-dependencies]` in `pyproject.toml`. Resolved reproducibly in `uv.lock`. Base virtual environment and CI install zero heavy speech libraries.
 - **Unit Test Coverage:** Verified by 129 hermetic tests across `tests/unit/test_settings_asr.py` and `tests/unit/test_providers_mock.py`.
 
-> **Note on Scope & Status:** Configuration is Apple Silicon-only, MLX is an optional dependency, the real MLX adapter remains unimplemented (`MockASRProvider` is currently the only working ASR provider), and model accuracy, latency, and memory footprints remain **unmeasured** until benchmarked on target hardware. Zero model weights were downloaded.
+> **Note on Scope & Status (Prompt 1):** Configuration is Apple Silicon-only, MLX is an optional dependency, the real MLX adapter was pending implementation (`MockASRProvider` was the only working ASR provider), and model accuracy, latency, and memory footprints remained unmeasured. Zero model weights were downloaded.
+
+### S1 Stage 2 (Prompt 2): MLX-Whisper ASR Provider Implementation & Stabilization
+*Deliverables: `backend/src/bolkhata/asr/mlx_whisper.py`, `tests/unit/test_asr_mlx_whisper.py`, `backend/src/bolkhata/common/registry.py`*
+
+In this prompt, we implemented and stabilized the first concrete hardware-accelerated speech recognition adapter: `MLXWhisperASRProvider`.
+- **Implementation & Architecture:**
+  - Concrete implementation of `ASRProvider` in [backend/src/bolkhata/asr/mlx_whisper.py](../backend/src/bolkhata/asr/mlx_whisper.py).
+  - Target hardware environment: Apple Silicon MacBook Air M5 (16 GB unified memory, macOS `arm64`).
+  - Runtime dependency: `mlx-whisper==0.4.3` via optional dependency group `mlx-whisper`.
+- **Key Engineering Discoveries & Robust Architectural Solutions:**
+  1. **C++ `nanobind` Extension Isolation (Crash Diagnosis & Fix):**
+     - *Issue:* During early test runs, tests that modified `sys.modules` via `patch.dict(sys.modules, {"mlx_whisper": None})` triggered fatal aborts (`Fatal Python error: Aborted`, exit code 134, `SIGABRT`). `mlx.core` is a C++ library bound to Python using `nanobind`. Mutating `sys.modules` unloads the Python module handle while the compiled shared object (`.so`) remains in process memory. Re-importing causes `nanobind` to detect duplicate C++ type registration and immediately abort process execution.
+     - *Fix:* Replaced runtime monkeypatching and `sys.modules` manipulation with a first-class dependency injection boundary. Defined `MLXRuntime` dataclass encapsulating `transcribe`, `snapshot_download`, `numpy`, and `local_not_found_errors`, loaded via `load_mlx_runtime()`. `MLXWhisperASRProvider.__init__` accepts an optional `runtime_loader` parameter. Hermetic unit tests inject fake runtime instances without touching `sys.modules` or initializing native C++ wheels.
+  2. **Bounded Concurrency & Cancellation Safety:**
+     - ASR compute is CPU/Metal bound. Parallel calls are constrained via `asyncio.Semaphore(settings.asr_max_concurrency)`.
+     - Monotonic worker tracking (`_worker_counter: int`) generates unique worker identifiers rather than relying on `id(asyncio.current_task())` (which is recycled across tasks).
+     - When an awaiting coroutine is cancelled via `asyncio.CancelledError`, Python cannot terminate the running OS thread in `ThreadPoolExecutor`. Prematurely releasing the semaphore upon coroutine cancellation would allow a new request into the executor, oversubscribing compute and memory.
+     - Solution: Decoupled slot ownership. A boolean flag `slot_owned_by_thread` tracks whether the running OS thread owns the semaphore. If the coroutine is cancelled, the thread cleanup callback releases the semaphore when the thread actually exits.
+  3. **Non-Blocking Event-Loop Shutdown:**
+     - `ThreadPoolExecutor.shutdown(wait=True)` blocks until all worker threads complete. Calling this directly on the asyncio thread freezes the event loop, causing dropped health checks and deadlocks.
+     - Solution: Implemented `self._cleanup_executor(executor, self._all_workers_done)` executed off the event loop via `asyncio.to_thread()`. The event loop continues processing frames and health requests during shutdown.
+  4. **Offline Model Resolution & Pinning Invariants:**
+     - Model paths are resolved via `snapshot_download(repo_id, revision, local_files_only=settings.asr_offline_mode)`.
+     - When `asr_offline_mode=True`, missing local files raise `RuntimeError("Model not found in local cache...")` without network attempts.
+     - When a pinned revision is configured, it is strictly passed to the resolver without silent fallbacks to `main`.
+  5. **Audio Preprocessing & Honest Confidence Preservation:**
+     - Input audio validated for 16 kHz s16le PCM, non-empty, and duration $\le$ `asr_max_duration_seconds`.
+     - Audio normalized to `float32` via standard library `bolkhata.asr.common.pcm_to_float32()`, converted to contiguous `np.float32` buffer for MLX.
+     - Empty audio returns an empty `ASRResult` with `confidence=None` without calling inference.
+     - Missing word or segment confidences remain `None`; uncalibrated logprobs are never masked or exponentiated.
+  6. **Streaming API Accumulation:**
+     - `stream_transcribe()` accumulates audio chunks until finalization, yielding a single completed `ASRResult` upon stream completion.
+- **Provider Registry Integration:**
+  - Wired `mlx_whisper` to instantiate `MLXWhisperASRProvider(self._settings)` in `bolkhata.common.registry.ProviderRegistry`.
+  - Verified lazy instantiation; mock tests run without MLX installed.
+- **Unit Test Coverage:**
+  - Added 21 hermetic unit tests in [tests/unit/test_asr_mlx_whisper.py](../tests/unit/test_asr_mlx_whisper.py), passing in 0.15s. Total test suite increased to 151 passing tests.
 
 
 
@@ -335,6 +373,7 @@ To prepare the codebase for concrete Apple Silicon speech recognition without pr
 | **Bounded ASR Concurrency** *(Approved)* | Bounded execution via `asr_max_concurrency: int = 1` in Settings. | Unbounded parallel `asyncio.to_thread` execution. | Speech inference is compute-bound and multi-threaded; unconstrained parallel calls exhaust RAM. | Simultaneous requests must queue behind an async semaphore, increasing queue latency under load. |
 | **Append-Only Ledger Safety** *(Approved - Planned S3)* | Immutable transaction entries; corrections and reversals are new compensating rows. | In-place SQL `UPDATE` / `DELETE` on transaction balances. | Financial auditability; guarantees zero data loss and simple offline synchronization conflict resolution. | Queries for current balance require aggregating transaction logs (mitigated by read-optimized balance snapshots). |
 | **Deterministic Number Parsing** *(Approved - Planned S2)* | Rule-based grammar and regex parser for Indian currency numbers. | Delegating number extraction to LLM prompts. | **Money safety:** LLMs hallucinate, suffer prompt injection, and struggle with Hindi compound numbers (*dhai sau* = 250). | Requires writing and maintaining exhaustive grammatical rule sets for Hindi, Hinglish, and English numeric terms. |
+| **DEC-0027: MLX Provider Architecture, Concurrency & Lifecycle Isolation** *(Approved - S1)* | Dedicated `MLXWhisperASRProvider` with injectable `MLXRuntime` boundary, bounded semaphore execution, monotonic worker counter, decoupled cancellation slot ownership, and off-loop `asyncio.to_thread` executor shutdown. | Monolithic adapter with `sys.modules` monkeypatching, unbounded threads, or blocking in-loop thread join. | Eliminates C++ `nanobind` duplicate registration `SIGABRT` crashes; prevents event-loop stalls during shutdown; guarantees concurrency slots are never leaked on coroutine cancellation. | Test harness must inject mock runtimes instead of patching global imports; slightly more boilerplate in provider initialization. |
 
 ---
 
@@ -359,7 +398,7 @@ The following table documents the active repository layout, identifying the purp
 | `backend/src/bolkhata/llm/base.py` | Abstract `LLMProvider` contract (`stream_chat`, `complete_structured`). | Implemented by `mock.py`, future LLM adapters. | **Implemented (S1)** |
 | `backend/src/bolkhata/llm/mock.py` | Deterministic mock LLM with fixture-driven structured output. | Used by `registry.py` under `llm_provider="mock"`. | **Implemented (S1)** |
 | `backend/src/bolkhata/domains/` | Package boundary for business domains (e.g. kirana ledger). | Isolated from core speech pipeline. | **Package Boundary (S0)** |
-| `backend/src/bolkhata/asr/mlx_whisper.py` | Concrete Apple Silicon Metal/MLX Whisper ASR adapter. | Depends on `ASRProvider`, mlx-whisper. | *Planned (S1 Stage 2)* |
+| `backend/src/bolkhata/asr/mlx_whisper.py` | Concrete Apple Silicon Metal/MLX Whisper ASR adapter. | Depends on `ASRProvider`, mlx-whisper. | **Implemented (S1 Stage 2)** |
 | `backend/src/bolkhata/domains/ledger/` | Kirana ledger DomainPack, schema, normalizers, and entities. | Implements DomainPack protocol. | *Planned (S3)* |
 | `frontend/src/App.tsx` | Root React component with health check polling. | Frontend entry point. | **Implemented (S0)** |
 | `frontend/src/apps/ledger/` | Frontend domain view boundary for kirana ledger UI. | Frontend application layer. | *Planned (S5)* |
@@ -367,6 +406,7 @@ The following table documents the active repository layout, identifying the purp
 | `tests/unit/test_providers_mock.py` | Unit tests for provider contracts, mock behaviors, and registry lifecycle. | Verifies `registry.py` and mock providers. | **Implemented (S1)** |
 | `tests/unit/test_asr_common.py` | Unit tests for PCM-to-float32 conversion and audio duration calculations. | Verifies `asr/common.py`. | **Implemented (S1)** |
 | `tests/unit/test_settings_asr.py` | Unit tests for Apple Silicon MLX ASR configuration and validation rules. | Verifies `settings.py` ASR configuration. | **Implemented (S1)** |
+| `tests/unit/test_asr_mlx_whisper.py` | Unit tests for `MLXWhisperASRProvider` (lifecycle, concurrency, cancellation, offline resolution, nanobind isolation). | Verifies `mlx_whisper.py`. | **Implemented (S1 Stage 2)** |
 | `tests/integration/test_health.py` | Integration tests for `/health` endpoint. | Verifies API routing and JSON response. | **Implemented (S0)** |
 | `tests/integration/test_ready.py` | Integration tests for `/ready` endpoint under healthy and failed DB states. | Verifies DB connectivity and 503 handling. | **Implemented (S0)** |
 | `tests/integration/test_alembic_smoke.py` | Integration tests verifying clean Alembic migration cycles. | Verifies DB migration scripts. | **Implemented (S0)** |
@@ -452,6 +492,32 @@ Interview Topics:
 - **Deeper Follow-Up:** What happens if a cleanup operation itself throws an exception during a rollback?
 - **What to show in code:** [backend/src/bolkhata/common/registry.py](../backend/src/bolkhata/common/registry.py) (lines 140–180).
 
+#### Q2.4: How do you safely release semaphore slots when a coroutine awaiting compute in a ThreadPoolExecutor is cancelled?
+- **What the interviewer is testing:** Edge-case concurrency control, asyncio cancellation boundaries, thread lifecycle decoupling, and avoiding resource exhaustion.
+- **Suggested Answer:**
+  > "In standard asyncio programming, developers often write:
+  > ```python
+  > async with semaphore:
+  >     return await loop.run_in_executor(executor, sync_fn)
+  > ```
+  > If the awaiting coroutine is cancelled, the `async with` block exits immediately, releasing the semaphore slot. However, Python cannot stop the OS thread running `sync_fn`. The native thread continues executing in the background, consuming memory and compute. If new requests arrive, they acquire the now-vacant semaphore slot, allowing multiple heavy native jobs into the executor simultaneously and causing memory oversubscription.
+  > In `MLXWhisperASRProvider`, we decoupled slot ownership from the coroutine context manager:
+  > 1. We acquire the semaphore via `await sem.acquire()`.
+  > 2. We pass the slot ownership to the thread worker.
+  > 3. Inside the worker thread's `finally:` block, we schedule `loop.call_soon_threadsafe(sem.release)`.
+  > If the coroutine is cancelled while waiting for the thread result, it does *not* release the semaphore. The semaphore slot remains occupied until the OS thread finishes its native compute and explicitly calls `sem.release()` via `call_soon_threadsafe()`. This strictly preserves concurrency limits even under aggressive client cancellations."
+- **Deeper Follow-Up:** What happens if `loop.run_in_executor()` itself fails before the thread starts?
+- **What to show in code:** `transcribe()` and `_run_inference()` in [backend/src/bolkhata/asr/mlx_whisper.py](../backend/src/bolkhata/asr/mlx_whisper.py).
+
+#### Q2.5: Why must `ThreadPoolExecutor.shutdown(wait=True)` run off the asyncio event loop thread?
+- **What the interviewer is testing:** Knowledge of event-loop responsiveness, thread joining, and deadlock prevention during graceful shutdown.
+- **Suggested Answer:**
+  > "Calling `ThreadPoolExecutor.shutdown(wait=True)` is a synchronous, blocking operation that calls `thread.join()` on every worker thread in the pool until all running tasks finish.
+  > If this blocking call is executed directly inside an `async def shutdown()` coroutine running on the main event loop thread, the event loop completely freezes. It cannot process incoming WebSocket frames, respond to HTTP `/health` probes, or execute scheduled `call_soon_threadsafe()` callbacks from the very threads it is waiting for (which can lead to permanent deadlocks).
+  > In BolKhata's `MLXWhisperASRProvider.shutdown()`, we offload the blocking shutdown to a temporary OS thread using `await asyncio.to_thread(self._cleanup_executor, executor, self._all_workers_done)`. The event loop continues spinning normally, processing health probes and thread callbacks, while the background thread waits cleanly for active workers to drain."
+- **Deeper Follow-Up:** How do you reject incoming requests once shutdown has commenced?
+- **What to show in code:** `shutdown()` and `_cleanup_executor()` in [backend/src/bolkhata/asr/mlx_whisper.py](../backend/src/bolkhata/asr/mlx_whisper.py).
+
 ---
 
 ### 3. AI & Speech Processing
@@ -490,6 +556,21 @@ Interview Topics:
   > - **Mandatory Verbal Read-back (S4):** Explicit spoken confirmation (*'Do sau pachaas rupaye udhaar. Sahi hai?'*) so the shopkeeper catches any phonetic confusion immediately."
 - **Deeper Follow-Up:** How does Whisper's `initial_prompt` parameter work for vocabulary biasing?
 - **What to show in code:** Point to Section A user journey and planned S2 milestone in Section B.
+
+#### Q3.4: Why does patching `sys.modules` to mock C++ extensions bound with nanobind or pybind11 cause SIGABRT crashes, and how do you test them hermetically?
+- **What the interviewer is testing:** Understanding of Python C-extension lifecycles, ABI bindings, shared library memory models, and dependency injection vs monkeypatching.
+- **Suggested Answer:**
+  > "C++ extensions bound via `nanobind` or `pybind11` (such as Apple's `mlx.core`) register type descriptors, function tables, and exception classes in global process memory when the compiled shared library (`.so` / `.dylib`) is loaded.
+  > In Python, `sys.modules` is merely a dictionary of module names mapping to Python module objects; it is *not* a mechanism for unloading shared libraries from process memory.
+  > If a test attempts to simulate a missing dependency using `patch.dict(sys.modules, {"mlx_whisper": None})`, the Python module handle is deleted, but the underlying `.dylib` remains mapped in memory. When the code subsequently attempts to import the module again, the C-extension's initialization function runs a second time. `nanobind` detects duplicate type registrations in its global registry and raises a fatal C++ assertion: `Fatal Python error: Aborted`, triggering `SIGABRT` (exit code 134) and killing the entire test process.
+  > To solve this hermetically without C++ crashes:
+  > 1. We defined an explicit `MLXRuntime` abstraction dataclass encapsulating the runtime methods (`transcribe`, `snapshot_download`, `numpy`, `local_not_found_errors`).
+  > 2. `MLXWhisperASRProvider` accepts an optional `runtime_loader` callable in its constructor.
+  > 3. Production code defaults to lazy module loading via `load_mlx_runtime()`.
+  > 4. Unit tests inject fake runtime instances directly into `MLXWhisperASRProvider(settings, runtime_loader=fake_loader)`.
+  > Tests execute 100% hermetically in a single process without downloading weights, touching `sys.modules`, or risking C-extension double-initialization."
+- **Deeper Follow-Up:** How does this pattern improve test speed and CI reliability?
+- **What to show in code:** `MLXRuntime` and `load_mlx_runtime()` in [backend/src/bolkhata/asr/mlx_whisper.py](../backend/src/bolkhata/asr/mlx_whisper.py) and [tests/unit/test_asr_mlx_whisper.py](../tests/unit/test_asr_mlx_whisper.py).
 
 ---
 
@@ -610,15 +691,15 @@ Interview Topics:
 ## Section G — Current Status & Next Steps
 
 ### Active Component Status
-*Verified as of S1 Stage 2 MLX Configuration*
+*Verified as of S1 Stage 2 MLX-Whisper Provider Implementation*
 
 - **S0 Production Foundation:** **Completed** (Monorepo, FastAPI, async DB, logging redaction, Alembic, Docker, CI).
 - **S0 Tooling & Secret Remediation:** **Completed** (Reproducible pre-commit, scanner allowlists, clean linting).
 - **S1 Stage 1 Provider Foundation:** **Completed** (Abstract contracts, deterministic mocks, thread-safe DI registry, reverse-order lifecycle rollbacks).
 - **S1 Stage 2 Audio Utilities & Concurrency Bounds:** **Completed** (16kHz PCM utilities, float32 conversion, duration calculations, concurrency bounds).
-- **S1 Stage 2 ASR Foundation (Apple Silicon MLX):** **Completed** (Honest confidence semantics `float | None`, `initial_prompt` prefix conditioning, validated MLX runtime settings, `mlx-whisper` optional dependency, 129 passing tests).
-- **MLX-Whisper Adapter (Apple Silicon):** *Not Implemented (Planned next)*.
-- **Real Speech Inference & Evaluation:** *Not Implemented (Planned next)*.
+- **S1 Stage 2 ASR Foundation (Apple Silicon MLX):** **Completed** (Honest confidence semantics `float | None`, `initial_prompt` prefix conditioning, validated MLX runtime settings, `mlx-whisper` optional dependency).
+- **MLX-Whisper Adapter (Apple Silicon):** **Completed (S1 Stage 2)** (`MLXWhisperASRProvider` in `backend/src/bolkhata/asr/mlx_whisper.py` with bounded semaphore concurrency, decoupled cancellation slot release, nanobind-safe runtime injection, off-loop executor shutdown, and 21 hermetic unit tests).
+- **Real Speech Inference & Evaluation:** *Not Implemented (Planned next — requires hardware smoke test on Apple Silicon Mac)*.
 - **WebSocket Push-to-Talk Voice Loop:** *Not Implemented (Planned S1/S4)*.
 - **S2 Spoken-Number Parser & Evaluation Harness:** *Pending*.
 - **S3 DomainPack & Append-Only Ledger:** *Pending*.
@@ -627,9 +708,8 @@ Interview Topics:
 - **S6 Evidence & Release Freeze:** *Pending*.
 
 ### Next Implementation Sequence
-1. **MLX-Whisper Provider:** Implement `MLXWhisperASRProvider` in `backend/src/bolkhata/asr/mlx_whisper.py` for hardware-accelerated Metal inference on Apple Silicon Macs.
-2. **Real Speech Fixtures & Accuracy Evaluation:** Create recorded Hindi/Hinglish audio fixtures in `tests/fixtures/` and verify ASR accuracy against ground truth without synthetic fabrication.
-3. **Push-to-Talk WebSocket Voice Loop:** Connect audio ingest endpoint to ASR engine and return streaming transcription events to the frontend.
+1. **Real Speech Hardware Smoke Test & Evaluation:** Run smoke transcription test on target Apple Silicon MacBook Air with real recorded audio fixtures, measuring baseline RTF, memory footprint, and transcribing Hindi/Hinglish speech tokens.
+2. **Push-to-Talk WebSocket Voice Loop:** Connect audio ingest endpoint to ASR engine and return streaming transcription events to the frontend.
 
 ---
 
@@ -639,10 +719,10 @@ Interview Topics:
 
 | Metric / Verification Gate | Latest Verified Result | What It Proves | Known Limitations |
 |---|---|---|---|
-| **Backend Unit & Integration Tests** | `129 passed in 0.18s` | All 129 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, and Apple Silicon MLX ASR settings validation. | Tests use deterministic mocks; real neural inference models are tested in separate evaluation suites. |
+| **Backend Unit & Integration Tests** | `151 passed in 0.25s` | All 151 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, and MLX-Whisper provider lifecycle/concurrency/cancellation. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
-| **Ruff Format Check** | `34 files already formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
-| **Mypy Static Type Analysis** | `Success: no issues found in 23 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
+| **Ruff Format Check** | `All files correctly formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
+| **Mypy Static Type Analysis** | `Success: no issues found in 24 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
 | **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 271ms` | React TypeScript compilation and production bundle build succeed with zero errors. | UI is currently at S0 baseline; push-to-talk voice controls are not yet wired. |
 | **Pre-Commit Checks (Two Passes)** | `Passed (all 11 hooks passed twice)` | Formatting, JSON/TOML validation, large file checks, and branch protection are completely reproducible and idempotent. | Verifies static file integrity. |
 | **Secret Scanning (`detect-secrets`)** | `0 secrets detected ("results": {})` | No API keys, passwords, high-entropy tokens, or credentials exist in tracked files. | Relies on known regex patterns and entropy thresholds. |
@@ -669,7 +749,8 @@ The following table records the verifiable Git commit history on the repository:
 | `b261680` | `feat/s1-provider-foundation` | `docs: fix repository-relative documentation links` | Made all documentation file links portable using repository-relative Markdown paths. |
 | `f84abff` | `feat/s1-provider-foundation` | `feat(s1): define ASR runtime config and confidence semantics` | Honest confidence semantics (`float \| None`), vocabulary-prompt contract, validated ASR runtime settings, platform-specific optional dependencies, and 38 new unit tests. |
 | `e252994` | `feat/s1-provider-foundation` | `fix(s1): make ASR configuration Apple Silicon only` | Standardized ASR configuration exclusively on Apple Silicon (MLX), removed Faster-Whisper, CUDA, and CTranslate2 dependencies, simplified Settings, and updated documentation. |
-| *(Pending)* | `feat/s1-provider-foundation` | `docs: align ASR documentation with Apple Silicon architecture` | Synchronized documentation with Apple Silicon-only architecture, made initial_prompt semantics and licensing notes precise, and eliminated unmeasured performance claims. |
+| `0d98879` | `feat/s1-provider-foundation` | `docs: align ASR documentation with Apple Silicon architecture` | Synchronized documentation with Apple Silicon-only architecture, made initial_prompt semantics and licensing notes precise, and eliminated unmeasured performance claims. |
+| *(Pending)* | `feat/s1-provider-foundation` | `feat(s1): implement MLX Whisper ASR provider` | Implemented `MLXWhisperASRProvider` with bounded concurrency, nanobind-safe runtime loader injection, off-loop shutdown, registry wiring, 21 hermetic unit tests, and comprehensive documentation across DEC-0027, architecture deep dive, and interview guide. |
 
 ---
 

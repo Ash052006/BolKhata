@@ -90,10 +90,9 @@ class ProviderRegistry:
         if norm == "mock":
             return MockASRProvider()
         if norm == "mlx_whisper":
-            raise ProviderNotImplementedError(
-                f"ASR provider '{provider_name}' is not yet implemented in Stage 1. "
-                "Real MLX adapter is scheduled for Stage 2."
-            )
+            from bolkhata.asr.mlx_whisper import MLXWhisperASRProvider
+
+            return MLXWhisperASRProvider(self._settings)
         raise ConfigurationError(f"Unknown ASR provider: {provider_name!r}")
 
     def _create_tts(self, provider_name: str) -> TTSProvider:

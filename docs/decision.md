@@ -52,6 +52,7 @@ It captures the architectural, technological, and engineering trade-offs made ac
   - [DEC-0024: Vocabulary-Prompt Support (initial_prompt) for Contextual Biasing](#dec-0024-vocabulary-prompt-support-initial_prompt-for-contextual-biasing)
   - [DEC-0025: Platform-Specific Optional Dependency Isolation for AI Runtimes (Superseded)](#dec-0025-platform-specific-optional-dependency-isolation-for-ai-runtimes)
   - [DEC-0026: Apple Silicon-Only Architecture with MLX ASR Runtime](#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime)
+  - [DEC-0027: MLX-Whisper ASR Provider Architecture, Bounded Worker Tracking, and Lifecycle Isolation](#dec-0027-mlx-whisper-asr-provider-architecture-bounded-worker-tracking-and-lifecycle-isolation)
 
 ---
 
@@ -1002,3 +1003,50 @@ Verified by `TestASRSettingsDefaultsAndOverrides`, `TestASRSettingsValidationErr
 **Interview angle:**
 *Challenge:* Why did you discard cross-platform support and standardize exclusively on Apple Silicon?
 *Defense:* In hardware-accelerated edge AI, premature cross-platform abstraction creates dead code. A kirana store counter requires compact, silent, fanless, and power-efficient hardware. Apple Silicon's unified memory architecture allows the CPU and GPU to share a unified 16 GB address space without PCIe bus transfer overhead. Rather than maintaining leaky abstractions over disparate runtimes (CUDA vs Metal), standardizing on MLX keeps the dependency graph minimal and focuses engineering effort on the target platform. Model execution metrics remain unmeasured pending benchmark execution.
+
+---
+
+### DEC-0027: MLX-Whisper ASR Provider Architecture, Bounded Worker Tracking, and Lifecycle Isolation
+- **Date:** 2026-11-19
+- **Stage:** S1 Stage 2
+- **Status:** Implemented Decision
+- **Related files:** `backend/src/bolkhata/asr/mlx_whisper.py`, `backend/src/bolkhata/common/registry.py`, `tests/unit/test_asr_mlx_whisper.py`
+- **Related commit:** Pending
+
+**Context:**
+S1 Stage 2 requires implementing BolKhata's first concrete neural speech recognition engine, `MLXWhisperASRProvider`, targeting Apple Silicon macOS (M-series, 16 GB unified memory).
+Key architectural constraints:
+1. The default CI/CD pipeline and local mock development must remain 100% free of MLX runtime imports and weight downloads.
+2. MLX inference is synchronous and compute-intensive; running it inside the asyncio event loop would freeze WebSocket heartbeats and HTTP routes.
+3. Native OS threads in Python cannot be killed asynchronously upon coroutine cancellation. If a caller cancels its awaiting coroutine, naive semaphore context managers release the slot immediately, causing the system to oversubscribe physical GPU/CPU cores while the abandoned thread is still executing.
+4. Native C++ extensions compiled with `nanobind` (`mlx.core`) maintain global static type registries; unloading/reloading modules via `sys.modules` manipulation causes fatal `SIGABRT` crashes (exit code 134).
+5. Shutdown must wait for running worker threads without deadlocking or blocking the event loop thread.
+
+**Decision:**
+1. **Lazy Runtime Dependency Boundary (`MLXRuntime`):** Encapsulated runtime dependencies in an immutable `MLXRuntime` container loaded via an injectable `runtime_loader`. Module import of `bolkhata.asr.mlx_whisper` triggers zero MLX imports. Unit tests inject fake runtimes directly without touching global `sys.modules` or monkeypatching `builtins.__import__`.
+2. **Cancellation-Safe Concurrency Slot Tracking:** Concurrency is bounded by `asr_max_concurrency` using an `asyncio.Semaphore` and a dedicated `ThreadPoolExecutor`. The semaphore slot is acquired asynchronously before submitting the job to the executor, and is released **strictly and exclusively** by the thread's completion callback (`loop.call_soon_threadsafe(sem.release)`). If the caller coroutine is cancelled while the thread is running, the slot remains occupied until the thread terminates, preventing capacity oversubscription.
+3. **Double-Checked Shutdown Rejection:** A request waiting in the semaphore queue re-checks `self._is_shutdown` immediately after acquiring the slot; if shutdown started while waiting, it releases the slot and raises `RuntimeError("MLXWhisperASRProvider has been shut down.")`.
+4. **Off-Loop Shutdown Synchronization:** `shutdown()` sets `self._is_shutdown = True` and signals `shutdown_started_event` synchronously before its first suspension point. The blocking join `all_workers_done.wait()` and `executor.shutdown(wait=True)` are executed off-loop via `asyncio.to_thread(_cleanup_executor, ...)`, ensuring the asyncio event loop is never blocked or deadlocked.
+5. **Strict Immutable Revision Resolution & Offline Mode:** The provider resolves models against Hugging Face repository `mlx-community/whisper-small-mlx` using the explicit 40-character commit hash (`45f3915923c7a79a5a5b5a7d909d39aeb0e5630e`). Mutable revisions (`main`) are strictly rejected. When `asr_offline_mode=True`, `local_files_only=True` is enforced and missing weights raise `ModelResolutionError`.
+6. **Honest Confidence & Push-to-Talk Streaming:** Overall confidence is strictly `None` because Whisper does not provide calibrated sequence-level probabilities (`avg_logprob` is uncalibrated). Word timings include probabilities only when supplied as a valid probability by the runtime. Streaming accumulates PCM frames and yields a single final `ASRPartialResult(text=..., is_final=True)` at completion, accurately representing sequence-to-sequence Whisper rather than fabricating incremental streaming text.
+
+**Alternatives considered:**
+1. *Global `patch.dict(sys.modules)` for missing-dependency testing:* Rejected because unloading `mlx.core` from `sys.modules` corrupts `nanobind`'s static type registry and triggers interpreter aborts (`SIGABRT`, exit code 134) on subsequent imports.
+2. *Rely on `async with semaphore:` context manager:* Rejected because coroutine cancellation exits the context manager and releases the slot prematurely while the OS worker thread is still active on hardware.
+3. *Synchronous `executor.shutdown(wait=True)` on the event loop:* Rejected because joining worker threads directly on the loop thread blocks the event loop and starves concurrent coroutines.
+
+**Why this approach:**
+Provides rock-solid concurrency guarantees, completely eliminates flaky test crashes, ensures zero network downloads during CI, and respects the true physical execution characteristics of synchronous neural inference on Apple Silicon.
+
+**Trade-offs:**
+`stream()` does not produce interim partial tokens during speech because Whisper is non-causal; this is documented honestly as push-to-talk batch accumulation. Real neural inference performance (WER, RTF, RAM) is unverified until the hardware smoke test milestone.
+
+**Consequences:**
+Complete thread safety, robust error recovery, and 100% hermetic unit tests running in a single process without C-extension corruption.
+
+**Evidence:**
+Verified by 21 unit tests in `tests/unit/test_asr_mlx_whisper.py` and 151 total backend tests in `tests/`.
+
+**Interview angle:**
+*Challenge:* What happens if a client disconnects while a heavy MLX speech inference request is executing?
+*Defense:* In Python asyncio, cancelling an awaiting task raises `asyncio.CancelledError` on the event loop, but native OS worker threads executing C++ MLX code cannot be interrupted. If we simply used `async with semaphore:`, the semaphore would be released immediately upon cancellation, allowing a new request to begin and causing multiple heavy matrix computations to fight for unified memory. Our provider decouples semaphore release from coroutine cancellation: the slot is held until the OS thread finishes its work and releases the slot via `loop.call_soon_threadsafe(sem.release)`. Furthermore, `shutdown()` awaits active worker completion off the event loop thread using `asyncio.to_thread`, ensuring shutdown never deadlocks the loop.
