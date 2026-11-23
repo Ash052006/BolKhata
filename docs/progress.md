@@ -2,9 +2,9 @@
 
 > **Document Type:** Living Architecture, Engineering Journal & Technical Interview Preparation Guide
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
-> **Last Updated:** Sprint S1 Stage 3 (Realtime WebSocket Session, Protocol & State Machine)
+> **Last Updated:** Sprint S1 Stage 4 (Push-to-Talk Frontend & Slice Completion)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `3584126955d5069f53535947b194d216f9f36e4f`
+> **Latest Commit:** `35e8489` (base), Pending: `feat(s1): wire push-to-talk frontend AudioWorklet and baseline benchmarks`
 
 ---
 
@@ -158,7 +158,7 @@ The project schedule follows the master roadmap outlined in `bolkhata-agent-prom
 | Stage | Objective | What We Do | Why It Matters | Status |
 |---|---|---|---|---|
 | **S0** | **Production Foundation** | Monorepo layout, FastAPI factory, async DB (SQLite/Postgres), health/readiness probes, structured logging with PII redaction, Docker Compose, CI, strict Ruff/mypy gates. | Eliminates technical debt early; establishes verifiable engineering baselines before introducing non-deterministic ML models. | **Completed** |
-| **S1** | **Provider Foundation & ASR Adapter** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Apple Silicon MLX ASR configuration and MLX-Whisper adapter, push-to-talk WebSocket slice. | Optimized exclusively for Apple Silicon MacBook Air (16 GB unified memory); enables 100% offline, deterministic CI testing without downloading heavy weights. | **In Progress**<br/>*(Interfaces, Registry, Mocks, Audio Utils, MLX Config & MLX Provider Completed)* |
+| **S1** | **Provider Foundation & Push-to-Talk Slice** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Apple Silicon MLX ASR adapter, WebSocket push-to-talk stream (`/ws/session`), explicit 4-state session machine, generation invariants, AudioWorklet frontend capture, and flushable PCM playback. | Enables 100% offline, deterministic CI testing; delivers a snappy, race-free voice loop with per-stage latency telemetry. | **Completed** |
 | **S2** | **Spoken-Number Parser & Evaluation Harness** | Deterministic number parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*), ground-truth audio test corpus, Word Error Rate (WER) and number extraction accuracy evaluation harness. | **Money safety:** Large language models hallucinate and fail at Indian colloquial arithmetic. Deterministic parsing guarantees mathematical correctness. | **Planned** |
 | **S3** | **DomainPack & Ledger Extraction** | Pluggable DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, append-only ledger schema, idempotency tokens. | Decouples speech pipeline from business logic; guarantees immutable financial audit trails and prevents double-posting. | **Planned** |
 | **S4** | **Read-Back, Correction & Failure Handling** | Verbal confirmation loop, state machine (IDLE, LISTENING, THINKING, SPEAKING), voice-driven transaction corrections, network failure and audio recovery flows. | Kirana shops cannot afford silent transcription mistakes; explicit verbal read-back ensures merchant trust and operational resilience. | **Planned** |
@@ -731,16 +731,18 @@ Interview Topics:
 - **S1 Stage 2 ASR Foundation (Apple Silicon MLX):** **Completed** (Honest confidence semantics `float | None`, `initial_prompt` prefix conditioning, validated MLX runtime settings, `mlx-whisper` optional dependency).
 - **MLX-Whisper Adapter (Apple Silicon):** **Completed (S1 Stage 2)** (`MLXWhisperASRProvider` in `backend/src/bolkhata/asr/mlx_whisper.py` with bounded semaphore concurrency, decoupled cancellation slot release, nanobind-safe runtime injection, off-loop executor shutdown, and 21 hermetic unit tests).
 - **WebSocket Push-to-Talk Voice Loop:** **Completed (S1 Stage 3)** (`/ws/session` WebSocket endpoint, versioned wire protocol in `docs/protocol.md` and `protocol.py`, explicit 4-state machine in `state.py` with unique `generation_id` per turn, and `SessionManager` turn pipeline orchestration).
+- **Frontend Push-to-Talk UI & AudioWorklet Capture:** **Completed (S1 Stage 4)** (React `usePushToTalk` hook, `audio-recorder-worklet.js` capturing 16kHz s16le PCM, hold-to-talk button, live transcript, flushable playback queue, and latency readout).
+- **Slice Baseline & Known Issues Documentation:** **Completed (S1 Stage 4)** (`docs/benchmarks/slice-baseline.md` and `docs/known-issues.md`).
 - **Real Speech Inference & Evaluation:** *Not Implemented (Planned next — requires hardware smoke test on Apple Silicon Mac)*.
-- **S2 Spoken-Number Parser & Evaluation Harness:** *Pending*.
+- **S2 Spoken-Number Parser & Evaluation Harness:** *Pending (Next Up)*.
 - **S3 DomainPack & Append-Only Ledger:** *Pending*.
 - **S4 Read-Back, Confirmation & Correction Loop:** *Pending*.
 - **S5 Frontend PWA & Hardware Benchmarking:** *Pending*.
 - **S6 Evidence & Release Freeze:** *Pending*.
 
 ### Next Implementation Sequence
-1. **Frontend AudioWorklet & PTT Loop (S1 Stage 4):** Connect React PWA microphone capture (16kHz mono PCM) to `/ws/session` and wire flushable audio playback.
-2. **S2 Spoken-Number Parser:** Implement deterministic parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*) and evaluation harness.
+1. **S2 Spoken-Number Parser & Evaluation Harness:** Implement deterministic parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*, *sawa*, *paune*) and reproducible WER/accuracy benchmark runner.
+2. **S3 DomainPack & Ledger Extraction:** Build DomainPack protocol, kirana transaction extraction schema, and append-only ledger tables.
 
 ---
 
@@ -754,7 +756,7 @@ Interview Topics:
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
 | **Ruff Format Check** | `All files correctly formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
 | **Mypy Static Type Analysis** | `Success: no issues found in 29 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
-| **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 245ms` | React TypeScript compilation and production bundle build succeed with zero errors. | UI is currently at S0 baseline; push-to-talk voice controls are not yet wired. |
+| **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 246ms` | React TypeScript compilation and production bundle build succeed with zero errors. AudioWorklet capture and flushable playback queue are fully compiled. | Push-to-talk loop runs against backend WebSocket. |
 | **Pre-Commit Checks (Two Passes)** | `Passed (all 11 hooks passed twice)` | Formatting, JSON/TOML validation, large file checks, and branch protection are completely reproducible and idempotent. | Verifies static file integrity. |
 | **Secret Scanning (`detect-secrets`)** | `0 secrets detected ("results": {})` | No API keys, passwords, high-entropy tokens, or credentials exist in tracked files. | Relies on known regex patterns and entropy thresholds. |
 | **Git Diff Cleanliness** | `git diff --check clean` | Zero whitespace errors or trailing carriage returns. | Formatting check only. |
@@ -784,6 +786,8 @@ The following table records the verifiable Git commit history on the repository:
 | `8f64dc7` | `feat/s1-provider-foundation` | `feat(s1): implement MLX Whisper ASR provider` | Implemented `MLXWhisperASRProvider` with bounded concurrency, nanobind-safe runtime loader injection, off-loop shutdown, registry wiring, 21 hermetic unit tests, and comprehensive documentation across DEC-0027, architecture deep dive, and interview guide. |
 | `144fde1` | `feat/s1-provider-foundation` | `docs(s1): sync progress commit SHA and scanner allowlist` | Synchronized latest commit SHA in progress journal and added pragma allowlist for test revision hash. |
 | `3584126` | `feat/s1-provider-foundation` | `feat(s1): implement realtime WebSocket session and protocol` | Implemented `/ws/session` endpoint, `docs/protocol.md`, Pydantic wire models, 4-state session machine, SessionManager pipeline, 27 new tests, and DEC-0028. |
+| `35e8489` | `feat/s1-provider-foundation` | `docs(s1): sync progress commit SHA and trim protocol whitespace` | Synchronized commit hash in progress journal and cleaned trailing whitespace. |
+| *(Pending)* | `feat/s1-provider-foundation` | `feat(s1): wire push-to-talk frontend AudioWorklet and baseline benchmarks` | Implemented React `usePushToTalk` hook, `audio-recorder-worklet.js`, PTT UI with live transcript, flushable playback, `slice-baseline.md`, and `known-issues.md`. S1 vertical slice complete. |
 
 ---
 
