@@ -4,7 +4,7 @@
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 > **Last Updated:** Sprint S1 Stage 3 (Realtime WebSocket Session, Protocol & State Machine)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `144fde1d96de1b6dfc7057d7dabceaba5646cd33` (base), Pending: `feat(s1): implement realtime WebSocket session and protocol`
+> **Latest Commit:** `3584126955d5069f53535947b194d216f9f36e4f`
 
 ---
 
@@ -783,7 +783,7 @@ The following table records the verifiable Git commit history on the repository:
 | `0d98879` | `feat/s1-provider-foundation` | `docs: align ASR documentation with Apple Silicon architecture` | Synchronized documentation with Apple Silicon-only architecture, made initial_prompt semantics and licensing notes precise, and eliminated unmeasured performance claims. |
 | `8f64dc7` | `feat/s1-provider-foundation` | `feat(s1): implement MLX Whisper ASR provider` | Implemented `MLXWhisperASRProvider` with bounded concurrency, nanobind-safe runtime loader injection, off-loop shutdown, registry wiring, 21 hermetic unit tests, and comprehensive documentation across DEC-0027, architecture deep dive, and interview guide. |
 | `144fde1` | `feat/s1-provider-foundation` | `docs(s1): sync progress commit SHA and scanner allowlist` | Synchronized latest commit SHA in progress journal and added pragma allowlist for test revision hash. |
-| *(Pending)* | `feat/s1-provider-foundation` | `feat(s1): implement realtime WebSocket session and protocol` | Implemented `/ws/session` endpoint, `docs/protocol.md`, Pydantic wire models, 4-state session machine, SessionManager pipeline, 27 new tests, and DEC-0028. |
+| `3584126` | `feat/s1-provider-foundation` | `feat(s1): implement realtime WebSocket session and protocol` | Implemented `/ws/session` endpoint, `docs/protocol.md`, Pydantic wire models, 4-state session machine, SessionManager pipeline, 27 new tests, and DEC-0028. |
 
 ---
 

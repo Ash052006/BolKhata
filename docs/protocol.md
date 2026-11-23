@@ -1,8 +1,8 @@
 # BolKhata Realtime WebSocket Protocol
 
-**Version:** 1.0.0  
-**Transport:** WebSocket (RFC 6455)  
-**Endpoint:** `/ws/session`  
+**Version:** 1.0.0
+**Transport:** WebSocket (RFC 6455)
+**Endpoint:** `/ws/session`
 **Audio Format:** 16,000 Hz, 16-bit Signed Linear PCM, Mono, Little-Endian (`pcm_s16le`)
 
 ---
