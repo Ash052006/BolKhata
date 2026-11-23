@@ -1,8 +1,8 @@
 # BolKhata — Known Issues & Architectural Simplifications
 
-> **Document Type:** Honest Technical Register of Current Limitations & Shortcuts  
-> **Last Updated:** Sprint S1 Stage 4 (Push-to-Talk Vertical Slice)  
-> **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)  
+> **Document Type:** Honest Technical Register of Current Limitations & Shortcuts
+> **Last Updated:** Sprint S1 Stage 4 (Push-to-Talk Vertical Slice)
+> **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 
 In adherence to the project's engineering principles (*"Never claim without a measurement"*, *"Honesty over optimism"*), this document records the intentional simplifications, crude edges, and unmeasured components present in the codebase at this stage.
 

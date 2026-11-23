@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BolKhata Evaluation Dataset Metadata",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "audio_file",
+      "reference",
+      "language",
+      "speaker_id",
+      "noise_level",
+      "category",
+      "duration_seconds"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Unique identifier for the utterance (e.g. utt_0001)"
+      },
+      "audio_file": {
+        "type": "string",
+        "description": "Relative path to audio file from metadata directory (e.g. audio/utt_0001.wav)"
+      },
+      "reference": {
+        "type": "string",
+        "description": "Ground truth transcript of the utterance"
+      },
+      "language": {
+        "type": "string",
+        "enum": ["hindi", "english", "hinglish"],
+        "description": "Primary language of utterance"
+      },
+      "speaker_id": {
+        "type": "string",
+        "description": "Identifier for the speaker (e.g. spk_01)"
+      },
+      "noise_level": {
+        "type": "string",
+        "enum": ["low", "medium", "high"],
+        "description": "Acoustic background noise condition"
+      },
+      "category": {
+        "type": "string",
+        "enum": [
+          "plain_hindi",
+          "plain_english",
+          "hinglish",
+          "number_heavy",
+          "noisy_shop",
+          "correction"
+        ],
+        "description": "Linguistic category of the test utterance"
+      },
+      "duration_seconds": {
+        "type": "number",
+        "minimum": 0.1,
+        "description": "Audio duration in seconds"
+      }
+    }
+  }
+}

@@ -266,6 +266,12 @@ Using pytest-asyncio, we write tests that:
   2. The push-to-talk WebSocket loop is not yet connected to the frontend UI.
   3. Acoustic accuracy (WER), memory footprint, and latency budgets on physical Apple Silicon hardware have not yet been benchmarked.
 
+### Challenge 7 (Q-D5): "Why do LLMs fail at Indian spoken arithmetic, and how does BolKhata guarantee money safety?"
+- **Defense:**
+  1. **Linguistic Complexity of Indian Numbers:** Indian speech frequently uses regional multipliers (`sau`, `hazaar`, `lakh`, `crore`) and fractional idioms like `dhai` (2.5x base), `derh` (1.5x base), `sawa` (1.25x or +0.25 of multiplier), `sadhe` (+0.5 of unit for $\ge 3$), and `paune` (-0.25 of unit). For instance, `dhai sau` is 250, `derh hazaar` is 1,500, `sawa sau` is 125, `sadhe teen sau` is 350, and `paune do sau` is 175.
+  2. **Probabilistic Hallucinations:** LLMs are autoregressive token predictors, not mathematical execution engines. Prompting an LLM to parse these phrases produces subtle, non-deterministic arithmetic errors (e.g. interpreting `dhai sau` as 200 or 50, or `paune do sau` as 275 instead of 175). In a ledger system tracking credit and debts, an error of ₹100 or ₹1,000 immediately destroys user trust.
+  3. **Architectural Hard Boundary:** BolKhata physically isolates the LLM from number parsing and arithmetic. A deterministic, table-driven Python grammar (`bolkhata.domains.common.numbers` and `bolkhata.domains.common.units`) parses 0–100 numbers, multipliers, fractions, and units. When an utterance is truly ambiguous (such as `do teen kilo` or `do teen sau rupaye`), the parser flags `is_ambiguous=True` and returns candidate values (`[200.0, 300.0]`) so the dialogue manager clarifies with the shopkeeper rather than guessing. Money amounts have mathematical provenance and never touch an LLM reasoning step.
+
 ---
 
 ## Topic J — Interview Preparation Checklist

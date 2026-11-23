@@ -1,10 +1,10 @@
 # Sprint S1: Push-to-Talk Vertical Slice Baseline
 
-**Document Type:** Engineering Latency Baseline & Measurement Log  
-**Date:** 2026-11-23  
-**Sprint:** S1 (Push-to-Talk Vertical Slice)  
-**Hardware Environment:** Apple Silicon Mac (macOS Darwin arm64, Unified Memory)  
-**Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)  
+**Document Type:** Engineering Latency Baseline & Measurement Log
+**Date:** 2026-11-23
+**Sprint:** S1 (Push-to-Talk Vertical Slice)
+**Hardware Environment:** Apple Silicon Mac (macOS Darwin arm64, Unified Memory)
+**Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 
 ---
 

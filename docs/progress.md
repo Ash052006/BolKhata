@@ -2,9 +2,9 @@
 
 > **Document Type:** Living Architecture, Engineering Journal & Technical Interview Preparation Guide
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
-> **Last Updated:** Sprint S1 Stage 4 (Push-to-Talk Frontend & Slice Completion)
+> **Last Updated:** Sprint S2 (Hinglish Normalization & Evaluation Harness)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `e9f73e73a6a9b46506f368e7ec89cb6b8ca59b8c`
+> **Latest Commit:** `a1a19a6e66e5907039d8ba2ca07114e92b05059e`
 
 ---
 
@@ -121,7 +121,7 @@ flowchart TD
     end
 
     subgraph CoreEngine ["Domain & Intelligence Layer"]
-        NUM_PARSER["Deterministic Spoken-Number Parser<br/>(Hindi / Hinglish / English)<br/><i>[Planned - S2]</i>"]
+        NUM_PARSER["Deterministic Spoken-Number Parser<br/>(Hindi / Hinglish / English)<br/><b>[Implemented - S2]</b>"]
         LLM["LLM Provider<br/>(Mock <b>[Done]</b> / Local or API <i>[Planned]</i>)"]
         DOMAIN["DomainPack & Ledger Extractor<br/>(Customer & Item Resolution)<br/><i>[Planned - S3]</i>"]
     end
@@ -159,7 +159,7 @@ The project schedule follows the master roadmap outlined in `bolkhata-agent-prom
 |---|---|---|---|---|
 | **S0** | **Production Foundation** | Monorepo layout, FastAPI factory, async DB (SQLite/Postgres), health/readiness probes, structured logging with PII redaction, Docker Compose, CI, strict Ruff/mypy gates. | Eliminates technical debt early; establishes verifiable engineering baselines before introducing non-deterministic ML models. | **Completed** |
 | **S1** | **Provider Foundation & Push-to-Talk Slice** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Apple Silicon MLX ASR adapter, WebSocket push-to-talk stream (`/ws/session`), explicit 4-state session machine, generation invariants, AudioWorklet frontend capture, and flushable PCM playback. | Enables 100% offline, deterministic CI testing; delivers a snappy, race-free voice loop with per-stage latency telemetry. | **Completed** |
-| **S2** | **Spoken-Number Parser & Evaluation Harness** | Deterministic number parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*), ground-truth audio test corpus, Word Error Rate (WER) and number extraction accuracy evaluation harness. | **Money safety:** Large language models hallucinate and fail at Indian colloquial arithmetic. Deterministic parsing guarantees mathematical correctness. | **Planned** |
+| **S2** | **Spoken-Number Parser & Evaluation Harness** | Deterministic number parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*), ground-truth audio test corpus tooling, Word Error Rate (WER) and number extraction accuracy evaluation harness, strict and tolerant normalization. | **Money safety:** Large language models hallucinate and fail at Indian colloquial arithmetic. Deterministic parsing guarantees mathematical correctness. | **Completed** |
 | **S3** | **DomainPack & Ledger Extraction** | Pluggable DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, append-only ledger schema, idempotency tokens. | Decouples speech pipeline from business logic; guarantees immutable financial audit trails and prevents double-posting. | **Planned** |
 | **S4** | **Read-Back, Correction & Failure Handling** | Verbal confirmation loop, state machine (IDLE, LISTENING, THINKING, SPEAKING), voice-driven transaction corrections, network failure and audio recovery flows. | Kirana shops cannot afford silent transcription mistakes; explicit verbal read-back ensures merchant trust and operational resilience. | **Planned** |
 | **S5** | **Frontend PWA, Offline Fallback & Benchmarks** | React PWA with AudioWorklet capture, offline local-LLM fallback, hardware latency/memory profiling (Apple Silicon Mac vs Windows RTX 3050). | Delivers snappy zero-latency push-to-talk UX and empirically validates performance against latency budgets on target hardware. | **Planned** |
@@ -382,6 +382,40 @@ In this prompt, we implemented the push-to-talk interactive WebSocket transport,
 - **Test Coverage:**
   - Added 27 new tests across protocol parsing, state machine transition matrix, and full end-to-end WebSocket integration.
   - Total test suite increased to 178 passing tests.
+
+### Sprint S2: Hinglish Normalization & Evaluation Harness
+
+In Sprint S2, we engineered the deterministic foundation for processing Indian multilingual commerce speech:
+
+- **Deterministic Spoken-Number Parser (`domains/common/numbers.py`):**
+  - Implemented exact lexical and rule-based parser covering numerals 0–100 in English, Romanized Hindi, and Devanagari.
+  - Full support for Indian scale multipliers: `sau` (100), `hazaar` (1,000), `lakh` (100,000), and `crore` (10,000,000).
+  - Implemented colloquial fractional idioms: `dhai` (2.5x base: `dhai sau` = 250, `dhai hazaar` = 2,500), `derh`/`dedh` (1.5x base: `dedh sau` = 150, `derh hazaar` = 1,500), `sawa` (1.25x or +0.25: `sawa sau` = 125, `sawa do sau` = 225), `sadhe` (+0.5 for $\ge 3$: `sadhe teen sau` = 350, `sadhe char sau` = 450), and `paune` (-0.25: `paune do sau` = 175, `paune teen sau` = 275, `paune sau` = 75).
+  - Compound structures: `teen hazaar paanch sau` = 3,500, `two fifty` = 250, `do lakh pachaas hazaar` = 250,000.
+  - `extract_numbers(text)`: Non-overlapping greedy entity extractor across natural language utterances.
+- **Units & Currency Normalization (`domains/common/units.py`):**
+  - Weights: `kilo`/`kg`, `gram`/`g`, `quintal`, and colloquial units (`pau` = 250g, `pau kilo` = 0.25 kg, `aadha kilo` = 0.5 kg).
+  - Volume: `litre`/`l`, `ml`, `aadha litre`.
+  - Packaging & Counts: `dozen`/`darjan` (12), `aadha darjan` (6), `packet`/`pkt`, `bori` (sack), `thaili` (pouch), `piece`/`nag`, `dabba` (box), `peti` (crate), `bottle`.
+  - Currency: `rupee`/`rupaye`/`rs`/`₹`/`inr`, `paise`/`paisa` (0.01 INR), and compound `das rupaye pachaas paise` (10.50 INR).
+  - Explicit ambiguity detection: ranges (`do teen kilo`, `do teen sau rupaye`) flag `is_ambiguous=True` with candidate values rather than guessing.
+- **ASR Text Normalization Policy (`docs/asr-normalization.md` & `eval/normalizer.py`):**
+  - Defined strict and transliteration-tolerant normalization.
+  - `strict`: NFC Unicode normalization, lowercase, ASCII/Indic danda (`।`, `॥`) punctuation removal, whitespace collapsing.
+  - `tolerant`: maps Devanagari numerals (`०-९`) to ASCII, removes precomposed/combining nuktas (`ज़` $\to$ `ज`, `फ़` $\to$ `फ`), and regularizes phonetic Hinglish spellings (`paanch` $\to$ `panch`, `hazaar` $\to$ `hazar`, `rupees` $\to$ `rupaye`).
+- **Evaluation Metrics Core (`eval/metrics.py`):**
+  - Pure-Python Wagner-Fischer dynamic programming edit distance for Word Error Rate (WER) and Character Error Rate (CER), reporting exact $S, D, I, H$ counts.
+  - Cross-validated against `jiwer` 4.0.0 in unit tests.
+  - Real-Time Factor (RTF) calculation and OS-aware peak memory measurement (macOS bytes vs Linux kilobytes).
+- **Dataset Tooling & Annotation Guide (`scripts/validate_eval_dataset.py`, `docs/eval-annotation-guide.md`, `docs/benchmarks/asr-v0.md`):**
+  - Defined JSON schema for 6 evaluation categories (`plain_hindi`, `plain_english`, `hinglish`, `number_heavy`, `noisy_shop`, `correction`).
+  - Automated integrity validator checking 16kHz mono 16-bit WAV parameters.
+  - Documented strict zero data fabrication standard.
+- **Benchmark Runner CLI (`eval/runner.py`, `eval/cli.py`, `eval/__main__.py`):**
+  - CLI `python -m bolkhata.eval run --models mock --dataset <path>` generating JSON summaries and Markdown reports.
+- **Test Suite Expansion:**
+  - Added 206 new unit/integration tests across `test_spoken_numbers.py` (64), `test_units_currency.py` (117), `test_eval_metrics.py` (19), `test_asr_normalizer.py` (3), and `test_eval_runner.py` (3).
+  - Total test suite expanded to 384 passing tests in 0.38s.
 
 ---
 
@@ -722,7 +756,7 @@ Interview Topics:
 ## Section G — Current Status & Next Steps
 
 ### Active Component Status
-*Verified as of S1 Stage 3 Realtime Protocol & WebSocket Session*
+*Verified as of Sprint S2 Hinglish Normalization & Evaluation Harness*
 
 - **S0 Production Foundation:** **Completed** (Monorepo, FastAPI, async DB, logging redaction, Alembic, Docker, CI).
 - **S0 Tooling & Secret Remediation:** **Completed** (Reproducible pre-commit, scanner allowlists, clean linting).
@@ -733,16 +767,16 @@ Interview Topics:
 - **WebSocket Push-to-Talk Voice Loop:** **Completed (S1 Stage 3)** (`/ws/session` WebSocket endpoint, versioned wire protocol in `docs/protocol.md` and `protocol.py`, explicit 4-state machine in `state.py` with unique `generation_id` per turn, and `SessionManager` turn pipeline orchestration).
 - **Frontend Push-to-Talk UI & AudioWorklet Capture:** **Completed (S1 Stage 4)** (React `usePushToTalk` hook, `audio-recorder-worklet.js` capturing 16kHz s16le PCM, hold-to-talk button, live transcript, flushable playback queue, and latency readout).
 - **Slice Baseline & Known Issues Documentation:** **Completed (S1 Stage 4)** (`docs/benchmarks/slice-baseline.md` and `docs/known-issues.md`).
+- **S2 Spoken-Number Parser & Evaluation Harness:** **Completed (Sprint S2)** (Deterministic spoken-number parser across 0–100, multipliers `sau`/`hazaar`/`lakh`/`crore`, colloquial fractions `dhai`/`derh`/`sawa`/`sadhe`/`paune`, unit & currency normalization with ambiguity detection, ASR text normalizer in `strict` and `tolerant` modes, pure-Python DP WER/CER cross-validated against `jiwer`, evaluation dataset tooling, and benchmark runner CLI).
 - **Real Speech Inference & Evaluation:** *Not Implemented (Planned next — requires hardware smoke test on Apple Silicon Mac)*.
-- **S2 Spoken-Number Parser & Evaluation Harness:** *Pending (Next Up)*.
-- **S3 DomainPack & Append-Only Ledger:** *Pending*.
+- **S3 DomainPack & Append-Only Ledger:** *Pending (Next Up)*.
 - **S4 Read-Back, Confirmation & Correction Loop:** *Pending*.
 - **S5 Frontend PWA & Hardware Benchmarking:** *Pending*.
 - **S6 Evidence & Release Freeze:** *Pending*.
 
 ### Next Implementation Sequence
-1. **S2 Spoken-Number Parser & Evaluation Harness:** Implement deterministic parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*, *sawa*, *paune*) and reproducible WER/accuracy benchmark runner.
-2. **S3 DomainPack & Ledger Extraction:** Build DomainPack protocol, kirana transaction extraction schema, and append-only ledger tables.
+1. **S3 DomainPack & Ledger Extraction:** Build DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, and append-only ledger tables.
+2. **S4 Read-Back, Confirmation & Correction Loop:** Build verbal read-back templates, confirmation grammar, and voice-driven correction.
 
 ---
 
@@ -752,15 +786,15 @@ Interview Topics:
 
 | Metric / Verification Gate | Latest Verified Result | What It Proves | Known Limitations |
 |---|---|---|---|
-| **Backend Unit & Integration Tests** | `178 passed in 0.34s` | All 178 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, and full WebSocket turn integration. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
+| **Backend Unit & Integration Tests** | `384 passed in 0.38s` | All 384 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, full WebSocket turn integration, spoken numbers parser, units & currency normalization, eval metrics & jiwer cross-validation, ASR normalizer, and eval runner. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
 | **Ruff Format Check** | `All files correctly formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
-| **Mypy Static Type Analysis** | `Success: no issues found in 29 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
+| **Mypy Static Type Analysis** | `Success: no issues found in 35 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
 | **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 246ms` | React TypeScript compilation and production bundle build succeed with zero errors. AudioWorklet capture and flushable playback queue are fully compiled. | Push-to-talk loop runs against backend WebSocket. |
 | **Pre-Commit Checks (Two Passes)** | `Passed (all 11 hooks passed twice)` | Formatting, JSON/TOML validation, large file checks, and branch protection are completely reproducible and idempotent. | Verifies static file integrity. |
 | **Secret Scanning (`detect-secrets`)** | `0 secrets detected ("results": {})` | No API keys, passwords, high-entropy tokens, or credentials exist in tracked files. | Relies on known regex patterns and entropy thresholds. |
 | **Git Diff Cleanliness** | `git diff --check clean` | Zero whitespace errors or trailing carriage returns. | Formatting check only. |
-| **ASR Word Error Rate (WER)** | *Not yet measured* | Real audio evaluation will be conducted in S2/S6. | Unmeasured at current sprint. |
+| **ASR Word Error Rate (WER)** | *Harness implemented, awaiting native speech recordings* | Evaluation harness and normalizer complete; physical recordings await deposit per `docs/eval-annotation-guide.md`. | Zero data fabrication policy enforced. |
 | **End-to-End Voice Latency (P99)** | *Not yet measured* | Latency budget profiling will occur in S5 on Apple Silicon MacBook Air M5. | Unmeasured at current sprint. |
 
 ### Verified Git Commit History
