@@ -65,7 +65,7 @@ flowchart TD
     end
 
     subgraph Gateway ["Application Gateway & Transport"]
-        WS["WebSocket Stream Manager<br/>(Binary Frames & Events)<br/><i>[Planned - S1/S4]</i>"]
+        WS["WebSocket Stream Manager<br/>(Binary Frames & Events)<br/><b>[Implemented - S1]</b>"]
         APP["FastAPI Application Factory<br/>(Lifespan & Probes)<br/><b>[Implemented - S0]</b>"]
     end
 
@@ -120,7 +120,9 @@ BolKhata/
 │   │   └── bolkhata/
 │   │       ├── api/            # HTTP routers and application factory
 │   │       │   ├── app.py      # create_app factory and lifespan context
-│   │       │   └── routes/     # Endpoint definitions (health, ready)
+│   │       │   └── routes/     # Endpoint definitions (health, ready, session)
+│   │       │       ├── health.py  # Health and readiness probes
+│   │       │       └── session.py # WebSocket push-to-talk endpoint (/ws/session)
 │   │       ├── asr/            # Speech recognition contracts and adapters
 │   │       │   ├── base.py     # Abstract ASRProvider, ASRResult dataclass
 │   │       │   ├── common.py   # PCM normalization and audio math utilities
@@ -138,6 +140,10 @@ BolKhata/
 │   │       ├── llm/            # Language model reasoning contracts and mocks
 │   │       │   ├── base.py     # Abstract LLMProvider, ChatMessage, LLMResponse
 │   │       │   └── mock.py     # Deterministic MockLLMProvider with fixture store
+│   │       ├── realtime/       # Realtime WebSocket protocol and state machine
+│   │       │   ├── protocol.py # Pydantic protocol models and message parser
+│   │       │   ├── session.py  # SessionManager coordinating turn execution
+│   │       │   └── state.py    # Explicit 4-state machine and generation tracking
 │   │       └── tts/            # Text-to-speech synthesis contracts and mocks
 │   │           ├── base.py     # Abstract TTSProvider
 │   │           └── mock.py     # Deterministic MockTTSProvider (sine PCM generator)

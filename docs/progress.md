@@ -2,9 +2,9 @@
 
 > **Document Type:** Living Architecture, Engineering Journal & Technical Interview Preparation Guide
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
-> **Last Updated:** Sprint S1 Stage 2 (Prompt 2 — MLX-Whisper Provider Implementation)
+> **Last Updated:** Sprint S1 Stage 3 (Realtime WebSocket Session, Protocol & State Machine)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `8f64dc79795dbc45f35e936a994dc1f5716c29b9`
+> **Latest Commit:** `144fde1d96de1b6dfc7057d7dabceaba5646cd33` (base), Pending: `feat(s1): implement realtime WebSocket session and protocol`
 
 ---
 
@@ -39,6 +39,7 @@ Whenever an implementation prompt or sprint is completed:
   - [S1 Stage 1: Lifecycle Hardening & Ordering Fixes](#s1-stage-1-lifecycle-hardening--ordering-fixes)
   - [S1 Stage 2 (Prompt 1): Audio Utilities & Shared ASR Settings](#s1-stage-2-prompt-1-audio-utilities--shared-asr-settings)
   - [S1 Stage 2 (Prompt 2): MLX-Whisper ASR Provider Implementation & Stabilization](#s1-stage-2-prompt-2-mlx-whisper-asr-provider-implementation--stabilization)
+  - [S1 Stage 3: Realtime Protocol, State Machine & WebSocket Session](#s1-stage-3-realtime-protocol-state-machine--websocket-session)
 - [Section D — Important Architecture Decisions (ADRs)](#section-d--important-architecture-decisions-adrs)
 - [Section E — Current Architecture & Code Map](#section-e--current-architecture--code-map)
 - [Section F — Technical Interview Preparation](#section-f--technical-interview-preparation)
@@ -104,7 +105,7 @@ flowchart TD
     end
 
     subgraph Transport ["Realtime Transport"]
-        WS["WebSocket Stream<br/>(Binary PCM + JSON Events)<br/><i>[Planned - S1/S4]</i>"]
+        WS["WebSocket Stream<br/>(Binary PCM + JSON Events)<br/><b>[Implemented - S1]</b>"]
     end
 
     subgraph BackendGateway ["FastAPI Application"]
@@ -358,7 +359,29 @@ In this prompt, we implemented and stabilized the first concrete hardware-accele
 - **Unit Test Coverage:**
   - Added 21 hermetic unit tests in [tests/unit/test_asr_mlx_whisper.py](../tests/unit/test_asr_mlx_whisper.py), passing in 0.15s. Total test suite increased to 151 passing tests.
 
+### S1 Stage 3: Realtime Protocol, State Machine & WebSocket Session
+*Deliverables: `docs/protocol.md`, `backend/src/bolkhata/realtime/`, `backend/src/bolkhata/api/routes/session.py`, `tests/unit/test_realtime_protocol.py`, `tests/unit/test_realtime_state_machine.py`, `tests/integration/test_ws_session.py`*
 
+In this prompt, we implemented the push-to-talk interactive WebSocket transport, session state machine, and turn orchestration pipeline:
+- **Wire Protocol (`docs/protocol.md` & `realtime/protocol.py`):**
+  - Designed versioned (v1.0.0) WebSocket protocol interleaving raw binary 16 kHz mono 16-bit PCM frames and strongly typed UTF-8 JSON control messages.
+  - Client messages: `start_utterance`, binary audio frames, `end_utterance`, `cancel_utterance`.
+  - Server messages: `session_state`, `transcript`, `assistant_text`, `audio_chunk` (base64 PCM), `timings`, and `error`.
+- **Explicit Four-State Machine (`realtime/state.py`):**
+  - Built `SessionStateMachine` enforcing transitions across `IDLE`, `LISTENING`, `THINKING`, and `SPEAKING`.
+  - Out-of-order transitions strictly raise `InvalidStateTransitionError` and emit structured `INVALID_STATE_TRANSITION` error frames.
+  - Mints fresh `generation_id` upon entering `THINKING` to guard against race conditions and stale turn emissions.
+  - Supports clean cancellation to `IDLE` and barge-in transitions (`SPEAKING -> LISTENING`).
+- **Session Manager & Turn Pipeline (`realtime/session.py`):**
+  - Manages per-connection bounded audio buffer (enforcing `asr_max_duration_seconds * BYTES_PER_SECOND`).
+  - Coordinates sequential stage execution with high-resolution latency timers: $\text{Audio Buffer} \rightarrow \text{ASR} \rightarrow \text{LLM} \rightarrow \text{TTS} \rightarrow \text{Timings}$.
+  - Filters stale turn outputs by checking generation validity at each stage boundary.
+- **FastAPI Integration (`api/routes/session.py` & `api/app.py`):**
+  - Mounted `/ws/session` WebSocket endpoint.
+  - Wired `ProviderRegistry.initialize_all()` and `shutdown_all()` directly into FastAPI's lifespan lifecycle.
+- **Test Coverage:**
+  - Added 27 new tests across protocol parsing, state machine transition matrix, and full end-to-end WebSocket integration.
+  - Total test suite increased to 178 passing tests.
 
 ---
 
@@ -374,6 +397,7 @@ In this prompt, we implemented and stabilized the first concrete hardware-accele
 | **Append-Only Ledger Safety** *(Approved - Planned S3)* | Immutable transaction entries; corrections and reversals are new compensating rows. | In-place SQL `UPDATE` / `DELETE` on transaction balances. | Financial auditability; guarantees zero data loss and simple offline synchronization conflict resolution. | Queries for current balance require aggregating transaction logs (mitigated by read-optimized balance snapshots). |
 | **Deterministic Number Parsing** *(Approved - Planned S2)* | Rule-based grammar and regex parser for Indian currency numbers. | Delegating number extraction to LLM prompts. | **Money safety:** LLMs hallucinate, suffer prompt injection, and struggle with Hindi compound numbers (*dhai sau* = 250). | Requires writing and maintaining exhaustive grammatical rule sets for Hindi, Hinglish, and English numeric terms. |
 | **DEC-0027: MLX Provider Architecture, Concurrency & Lifecycle Isolation** *(Approved - S1)* | Dedicated `MLXWhisperASRProvider` with injectable `MLXRuntime` boundary, bounded semaphore execution, monotonic worker counter, decoupled cancellation slot ownership, and off-loop `asyncio.to_thread` executor shutdown. | Monolithic adapter with `sys.modules` monkeypatching, unbounded threads, or blocking in-loop thread join. | Eliminates C++ `nanobind` duplicate registration `SIGABRT` crashes; prevents event-loop stalls during shutdown; guarantees concurrency slots are never leaked on coroutine cancellation. | Test harness must inject mock runtimes instead of patching global imports; slightly more boilerplate in provider initialization. |
+| **DEC-0028: Push-to-Talk WebSocket Protocol, State Machine & Generation Invariants** *(Approved - S1)* | Single `/ws/session` endpoint with explicit 4-state machine (`IDLE`, `LISTENING`, `THINKING`, `SPEAKING`), unique `generation_id` per turn, and bounded audio buffer. | WebRTC MediaStreams; separate REST polling endpoints; implicit boolean flags. | Prevents out-of-order execution, eliminates stale audio/text delivery upon client interruption, and bounds server memory. | Client must maintain WebSocket connection and handle interleaved JSON and binary frames. |
 
 ---
 
@@ -399,6 +423,10 @@ The following table documents the active repository layout, identifying the purp
 | `backend/src/bolkhata/llm/mock.py` | Deterministic mock LLM with fixture-driven structured output. | Used by `registry.py` under `llm_provider="mock"`. | **Implemented (S1)** |
 | `backend/src/bolkhata/domains/` | Package boundary for business domains (e.g. kirana ledger). | Isolated from core speech pipeline. | **Package Boundary (S0)** |
 | `backend/src/bolkhata/asr/mlx_whisper.py` | Concrete Apple Silicon Metal/MLX Whisper ASR adapter. | Depends on `ASRProvider`, mlx-whisper. | **Implemented (S1 Stage 2)** |
+| `backend/src/bolkhata/api/routes/session.py` | WebSocket push-to-talk route handler (`/ws/session`). | Depends on `registry.py`, `session.py`. | **Implemented (S1 Stage 3)** |
+| `backend/src/bolkhata/realtime/protocol.py` | Pydantic wire models and parser for client/server WebSocket frames. | Used by `session.py`, `routes/session.py`. | **Implemented (S1 Stage 3)** |
+| `backend/src/bolkhata/realtime/state.py` | Explicit 4-state machine (`IDLE`, `LISTENING`, `THINKING`, `SPEAKING`). | Used by `session.py`. | **Implemented (S1 Stage 3)** |
+| `backend/src/bolkhata/realtime/session.py` | `SessionManager` orchestrating turn pipeline and latency telemetry. | Depends on providers, state machine, protocol. | **Implemented (S1 Stage 3)** |
 | `backend/src/bolkhata/domains/ledger/` | Kirana ledger DomainPack, schema, normalizers, and entities. | Implements DomainPack protocol. | *Planned (S3)* |
 | `frontend/src/App.tsx` | Root React component with health check polling. | Frontend entry point. | **Implemented (S0)** |
 | `frontend/src/apps/ledger/` | Frontend domain view boundary for kirana ledger UI. | Frontend application layer. | *Planned (S5)* |
@@ -407,6 +435,9 @@ The following table documents the active repository layout, identifying the purp
 | `tests/unit/test_asr_common.py` | Unit tests for PCM-to-float32 conversion and audio duration calculations. | Verifies `asr/common.py`. | **Implemented (S1)** |
 | `tests/unit/test_settings_asr.py` | Unit tests for Apple Silicon MLX ASR configuration and validation rules. | Verifies `settings.py` ASR configuration. | **Implemented (S1)** |
 | `tests/unit/test_asr_mlx_whisper.py` | Unit tests for `MLXWhisperASRProvider` (lifecycle, concurrency, cancellation, offline resolution, nanobind isolation). | Verifies `mlx_whisper.py`. | **Implemented (S1 Stage 2)** |
+| `tests/unit/test_realtime_protocol.py` | Unit tests for WebSocket protocol parsing and serialization. | Verifies `realtime/protocol.py`. | **Implemented (S1 Stage 3)** |
+| `tests/unit/test_realtime_state_machine.py` | Unit tests for 4-state session transitions and illegal transition rejection. | Verifies `realtime/state.py`. | **Implemented (S1 Stage 3)** |
+| `tests/integration/test_ws_session.py` | Integration tests for full WebSocket push-to-talk turn, cancellation, and error frames. | Verifies `/ws/session`. | **Implemented (S1 Stage 3)** |
 | `tests/integration/test_health.py` | Integration tests for `/health` endpoint. | Verifies API routing and JSON response. | **Implemented (S0)** |
 | `tests/integration/test_ready.py` | Integration tests for `/ready` endpoint under healthy and failed DB states. | Verifies DB connectivity and 503 handling. | **Implemented (S0)** |
 | `tests/integration/test_alembic_smoke.py` | Integration tests verifying clean Alembic migration cycles. | Verifies DB migration scripts. | **Implemented (S0)** |
@@ -691,7 +722,7 @@ Interview Topics:
 ## Section G — Current Status & Next Steps
 
 ### Active Component Status
-*Verified as of S1 Stage 2 MLX-Whisper Provider Implementation*
+*Verified as of S1 Stage 3 Realtime Protocol & WebSocket Session*
 
 - **S0 Production Foundation:** **Completed** (Monorepo, FastAPI, async DB, logging redaction, Alembic, Docker, CI).
 - **S0 Tooling & Secret Remediation:** **Completed** (Reproducible pre-commit, scanner allowlists, clean linting).
@@ -699,8 +730,8 @@ Interview Topics:
 - **S1 Stage 2 Audio Utilities & Concurrency Bounds:** **Completed** (16kHz PCM utilities, float32 conversion, duration calculations, concurrency bounds).
 - **S1 Stage 2 ASR Foundation (Apple Silicon MLX):** **Completed** (Honest confidence semantics `float | None`, `initial_prompt` prefix conditioning, validated MLX runtime settings, `mlx-whisper` optional dependency).
 - **MLX-Whisper Adapter (Apple Silicon):** **Completed (S1 Stage 2)** (`MLXWhisperASRProvider` in `backend/src/bolkhata/asr/mlx_whisper.py` with bounded semaphore concurrency, decoupled cancellation slot release, nanobind-safe runtime injection, off-loop executor shutdown, and 21 hermetic unit tests).
+- **WebSocket Push-to-Talk Voice Loop:** **Completed (S1 Stage 3)** (`/ws/session` WebSocket endpoint, versioned wire protocol in `docs/protocol.md` and `protocol.py`, explicit 4-state machine in `state.py` with unique `generation_id` per turn, and `SessionManager` turn pipeline orchestration).
 - **Real Speech Inference & Evaluation:** *Not Implemented (Planned next — requires hardware smoke test on Apple Silicon Mac)*.
-- **WebSocket Push-to-Talk Voice Loop:** *Not Implemented (Planned S1/S4)*.
 - **S2 Spoken-Number Parser & Evaluation Harness:** *Pending*.
 - **S3 DomainPack & Append-Only Ledger:** *Pending*.
 - **S4 Read-Back, Confirmation & Correction Loop:** *Pending*.
@@ -708,8 +739,8 @@ Interview Topics:
 - **S6 Evidence & Release Freeze:** *Pending*.
 
 ### Next Implementation Sequence
-1. **Real Speech Hardware Smoke Test & Evaluation:** Run smoke transcription test on target Apple Silicon MacBook Air with real recorded audio fixtures, measuring baseline RTF, memory footprint, and transcribing Hindi/Hinglish speech tokens.
-2. **Push-to-Talk WebSocket Voice Loop:** Connect audio ingest endpoint to ASR engine and return streaming transcription events to the frontend.
+1. **Frontend AudioWorklet & PTT Loop (S1 Stage 4):** Connect React PWA microphone capture (16kHz mono PCM) to `/ws/session` and wire flushable audio playback.
+2. **S2 Spoken-Number Parser:** Implement deterministic parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*) and evaluation harness.
 
 ---
 
@@ -719,11 +750,11 @@ Interview Topics:
 
 | Metric / Verification Gate | Latest Verified Result | What It Proves | Known Limitations |
 |---|---|---|---|
-| **Backend Unit & Integration Tests** | `151 passed in 0.25s` | All 151 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, and MLX-Whisper provider lifecycle/concurrency/cancellation. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
+| **Backend Unit & Integration Tests** | `178 passed in 0.34s` | All 178 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, and full WebSocket turn integration. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
 | **Ruff Format Check** | `All files correctly formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
-| **Mypy Static Type Analysis** | `Success: no issues found in 24 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
-| **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 271ms` | React TypeScript compilation and production bundle build succeed with zero errors. | UI is currently at S0 baseline; push-to-talk voice controls are not yet wired. |
+| **Mypy Static Type Analysis** | `Success: no issues found in 29 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
+| **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 245ms` | React TypeScript compilation and production bundle build succeed with zero errors. | UI is currently at S0 baseline; push-to-talk voice controls are not yet wired. |
 | **Pre-Commit Checks (Two Passes)** | `Passed (all 11 hooks passed twice)` | Formatting, JSON/TOML validation, large file checks, and branch protection are completely reproducible and idempotent. | Verifies static file integrity. |
 | **Secret Scanning (`detect-secrets`)** | `0 secrets detected ("results": {})` | No API keys, passwords, high-entropy tokens, or credentials exist in tracked files. | Relies on known regex patterns and entropy thresholds. |
 | **Git Diff Cleanliness** | `git diff --check clean` | Zero whitespace errors or trailing carriage returns. | Formatting check only. |
@@ -751,6 +782,8 @@ The following table records the verifiable Git commit history on the repository:
 | `e252994` | `feat/s1-provider-foundation` | `fix(s1): make ASR configuration Apple Silicon only` | Standardized ASR configuration exclusively on Apple Silicon (MLX), removed Faster-Whisper, CUDA, and CTranslate2 dependencies, simplified Settings, and updated documentation. |
 | `0d98879` | `feat/s1-provider-foundation` | `docs: align ASR documentation with Apple Silicon architecture` | Synchronized documentation with Apple Silicon-only architecture, made initial_prompt semantics and licensing notes precise, and eliminated unmeasured performance claims. |
 | `8f64dc7` | `feat/s1-provider-foundation` | `feat(s1): implement MLX Whisper ASR provider` | Implemented `MLXWhisperASRProvider` with bounded concurrency, nanobind-safe runtime loader injection, off-loop shutdown, registry wiring, 21 hermetic unit tests, and comprehensive documentation across DEC-0027, architecture deep dive, and interview guide. |
+| `144fde1` | `feat/s1-provider-foundation` | `docs(s1): sync progress commit SHA and scanner allowlist` | Synchronized latest commit SHA in progress journal and added pragma allowlist for test revision hash. |
+| *(Pending)* | `feat/s1-provider-foundation` | `feat(s1): implement realtime WebSocket session and protocol` | Implemented `/ws/session` endpoint, `docs/protocol.md`, Pydantic wire models, 4-state session machine, SessionManager pipeline, 27 new tests, and DEC-0028. |
 
 ---
 

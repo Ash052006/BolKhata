@@ -53,6 +53,7 @@ It captures the architectural, technological, and engineering trade-offs made ac
   - [DEC-0025: Platform-Specific Optional Dependency Isolation for AI Runtimes (Superseded)](#dec-0025-platform-specific-optional-dependency-isolation-for-ai-runtimes)
   - [DEC-0026: Apple Silicon-Only Architecture with MLX ASR Runtime](#dec-0026-apple-silicon-only-architecture-with-mlx-asr-runtime)
   - [DEC-0027: MLX-Whisper ASR Provider Architecture, Bounded Worker Tracking, and Lifecycle Isolation](#dec-0027-mlx-whisper-asr-provider-architecture-bounded-worker-tracking-and-lifecycle-isolation)
+  - [DEC-0028: Push-to-Talk WebSocket Protocol, Explicit Four-State Machine, and Generation Invariants](#dec-0028-push-to-talk-websocket-protocol-explicit-four-state-machine-and-generation-invariants)
 
 ---
 
@@ -1050,3 +1051,49 @@ Verified by 21 unit tests in `tests/unit/test_asr_mlx_whisper.py` and 151 total 
 **Interview angle:**
 *Challenge:* What happens if a client disconnects while a heavy MLX speech inference request is executing?
 *Defense:* In Python asyncio, cancelling an awaiting task raises `asyncio.CancelledError` on the event loop, but native OS worker threads executing C++ MLX code cannot be interrupted. If we simply used `async with semaphore:`, the semaphore would be released immediately upon cancellation, allowing a new request to begin and causing multiple heavy matrix computations to fight for unified memory. Our provider decouples semaphore release from coroutine cancellation: the slot is held until the OS thread finishes its work and releases the slot via `loop.call_soon_threadsafe(sem.release)`. Furthermore, `shutdown()` awaits active worker completion off the event loop thread using `asyncio.to_thread`, ensuring shutdown never deadlocks the loop.
+
+---
+
+### DEC-0028: Push-to-Talk WebSocket Protocol, Explicit Four-State Machine, and Generation Invariants
+
+*Status: Implemented (S1 Stage 3)*
+
+**Context:**
+A voice-driven Kirana application needs an interactive, low-latency communication channel between the client browser and the backend speech-to-text, LLM dialogue, and text-to-speech synthesis pipeline. The transport must:
+1. Stream binary 16 kHz mono 16-bit PCM frames without base64 framing overhead during active speech.
+2. Interleave UTF-8 JSON control messages (`start_utterance`, `end_utterance`, `cancel_utterance`, `transcript`, `assistant_text`, `audio_chunk`, `timings`, `error`).
+3. Enforce an explicit session state machine (`IDLE`, `LISTENING`, `THINKING`, `SPEAKING`) where illegal transitions are rejected and logged.
+4. Prevent race conditions and stale turns through monotonic turn tracking and unique `generation_id` tokens.
+
+**Decision:**
+1. **Single WebSocket Transport (`/ws/session`):** Unified bidirectional connection handling binary audio frames and typed JSON messages. Avoids complex multi-protocol coordination (WebRTC or separate polling REST endpoints).
+2. **Explicit Four-State Machine (`SessionStateMachine`):**
+   - `IDLE`: Connection open, waiting for push-to-talk press.
+   - `LISTENING`: Talk button pressed, accumulating raw PCM frames in bounded buffer.
+   - `THINKING`: Talk button released, running ASR and LLM reasoning. Generates a fresh `generation_id`.
+   - `SPEAKING`: Synthesizing and streaming audio chunks back to the client.
+   - **Transition Invariant:** Only legal transitions are permitted (`IDLE -> LISTENING`, `LISTENING -> THINKING`, `THINKING -> SPEAKING`, `SPEAKING -> IDLE`, plus cancellation back to `IDLE` or barge-in `SPEAKING -> LISTENING`). Out-of-order calls (e.g. `start_utterance` while in `THINKING`) raise `InvalidStateTransitionError` and emit a structured error frame.
+3. **Generation Invariants (`generation_id`):** When entering `THINKING`, the session manager generates a new `generation_id`. All emitted downstream events (`transcript`, `assistant_text`, `audio_chunk`, `timings`) carry this ID. If a user cancels or interrupts a turn, any lingering in-flight compute matching an older `generation_id` is silently dropped, guaranteeing no stale audio or text corrupts the client UI.
+4. **Bounded Audio Buffering:** In `LISTENING`, audio bytes are accumulated up to `asr_max_duration_seconds * BYTES_PER_SECOND`. If a client streams past the duration limit, the server emits `AUDIO_TOO_LONG` and resets to `IDLE` without allocating unbounded memory.
+5. **Per-Stage Latency Telemetry (`timings`):** Every turn concludes with fine-grained timing measurements (`asr_ms`, `llm_ms`, `tts_ms`, `total_ms`) for end-to-end performance visibility.
+
+**Alternatives considered:**
+1. *WebRTC (DataChannel + MediaStream):* Excessive complexity, NAT traversal/STUN/TURN dependencies, and unnecessary peer-to-peer overhead for a simple push-to-talk store application.
+2. *HTTP POST with polling / Server-Sent Events (SSE):* Incurs multi-connection overhead, higher latency, and difficulty synchronizing binary audio chunks with state events.
+3. *Implicit boolean state flags (`is_listening = True`):* Susceptible to race conditions, split-brain states, and difficult to test exhaustively.
+
+**Why this approach:**
+Provides a simple, robust, auditable protocol with strict state machine validation and race-free turn handling.
+
+**Consequences:**
+The client and server maintain perfectly synchronized states with sub-millisecond transition overhead. Tests can easily simulate entire turns with pure mock or real providers.
+
+**Evidence:**
+Verified by:
+- 12 unit tests in `tests/unit/test_realtime_protocol.py`
+- 10 unit tests in `tests/unit/test_realtime_state_machine.py`
+- 5 integration tests in `tests/integration/test_ws_session.py`
+
+**Interview angle:**
+*Challenge:* What happens if a shopkeeper taps push-to-talk while the assistant is in the middle of synthesizing a response for the previous question?
+*Defense:* This is a classic voice UI race condition. Our state machine supports explicit barge-in transitions (`SPEAKING -> LISTENING`). When `start_utterance` arrives, any active background task for the previous turn is cancelled, the state resets the generation context, and a new `turn_id` is established. Furthermore, even if native threads from the earlier turn continue briefly before cancellation takes effect, any emitted events carry the old `generation_id` and are discarded before reaching the client.

@@ -93,6 +93,19 @@ In `MLXWhisperASRProvider`, we decouple semaphore release from coroutine lifecyc
 6. **Relevant files/tests:** `backend/src/bolkhata/asr/mlx_whisper.py`, `tests/unit/test_asr_mlx_whisper.py`.
 7. **What not to claim:** Do not claim that cancelling the task kills the running thread.
 
+### Q-C3: How does the push-to-talk WebSocket session prevent stale turn race conditions when users interrupt or cancel speech?
+1. **What the interviewer wants to evaluate:** Distributed state management, asynchronous cancellation semantics, event-driven race condition prevention, and generation tagging.
+2. **Technically correct answer:** In real-time voice applications, users frequently interrupt audio playback (barge-in) or cancel an utterance mid-way. In an asynchronous pipeline where ASR, LLM, and TTS execute across separate stages, in-flight background tasks from an earlier turn might complete *after* the user has already started a new turn. If unhandled, this results in out-of-order text tokens, wrong audio playback, or corrupted state.
+BolKhata solves this via three complementary mechanisms:
+- **Explicit Four-State Machine:** The session transitions strictly (`IDLE` -> `LISTENING` -> `THINKING` -> `SPEAKING` -> `IDLE`). Illegal transitions (e.g. `start_utterance` while in `THINKING`) are rejected immediately with an error frame.
+- **Generation Invariant (`generation_id`):** Every time a turn transitions to `THINKING`, a fresh, unique `generation_id` (UUID v4) is minted. Downstream pipeline stages check `if self.state_machine.generation_id != generation_id:` between stage boundaries (after ASR, during LLM streaming, and before TTS emission). Any result matching a previous generation is dropped silently.
+- **Task Cancellation:** Upon receiving `start_utterance` or `cancel_utterance`, any running `_active_turn_task` is explicitly cancelled (`task.cancel()`), allowing coroutines awaiting I/O or provider results to unwind immediately.
+3. **BolKhata concrete example:** `SessionStateMachine` in `backend/src/bolkhata/realtime/state.py` and `SessionManager._execute_turn` in `backend/src/bolkhata/realtime/session.py`.
+4. **Follow-up question:** What happens if the shopkeeper speaks for longer than the maximum supported duration?
+5. **Deeper follow-up answer:** The audio buffer is strictly bounded by `asr_max_duration_seconds * BYTES_PER_SECOND`. If binary frames exceed this limit, the session emits an `AUDIO_TOO_LONG` error frame, purges the buffer, and resets the state machine to `IDLE` to protect server memory.
+6. **Relevant files/tests:** `backend/src/bolkhata/realtime/state.py`, `backend/src/bolkhata/realtime/session.py`, `tests/unit/test_realtime_state_machine.py`, `tests/integration/test_ws_session.py`.
+7. **What not to claim:** Do not claim that cancelling `_active_turn_task` instantly aborts compute already executing in a native C++ thread; generation ID filtering handles the scenario where the thread finishes its computation after the coroutine has been cancelled.
+
 ---
 
 ## Topic D — AI, Speech Recognition & Signal Processing

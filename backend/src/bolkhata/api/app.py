@@ -22,8 +22,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from bolkhata.api.routes.health import router as health_router
+from bolkhata.api.routes.session import router as session_router
 from bolkhata.common.db import build_engine, build_session_factory
 from bolkhata.common.logging import configure_logging, get_logger
+from bolkhata.common.registry import ProviderRegistry
 from bolkhata.config.settings import settings
 
 logger = get_logger(__name__)
@@ -40,12 +42,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     engine = build_engine(db_url)
     app.state.engine = engine
     app.state.session_factory = build_session_factory(engine)
+
+    # Initialize AI Provider Registry
+    registry = getattr(app.state, "registry", None)
+    if registry is None:
+        registry = ProviderRegistry(settings)
+        await registry.initialize_all()
+        app.state.registry = registry
+
+    app.state.settings = settings
     logger.info("bolkhata_ready")
 
     yield
 
     # --- shutdown ---
     logger.info("bolkhata_shutting_down")
+    if hasattr(app.state, "registry") and app.state.registry is not None:
+        await app.state.registry.shutdown_all()
     await engine.dispose()
     logger.info("bolkhata_stopped")
 
@@ -63,6 +76,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(session_router)
 
     return app
 

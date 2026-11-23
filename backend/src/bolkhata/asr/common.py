@@ -17,6 +17,7 @@ import sys
 SAMPLE_RATE_HZ: int = 16000
 CHANNELS: int = 1
 BYTES_PER_SAMPLE: int = 2
+BYTES_PER_SECOND: int = SAMPLE_RATE_HZ * CHANNELS * BYTES_PER_SAMPLE
 
 
 class AudioFormatError(ValueError):
