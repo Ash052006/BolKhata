@@ -4,7 +4,7 @@
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 > **Last Updated:** Sprint S1 Stage 4 (Push-to-Talk Frontend & Slice Completion)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `35e8489` (base), Pending: `feat(s1): wire push-to-talk frontend AudioWorklet and baseline benchmarks`
+> **Latest Commit:** `e9f73e73a6a9b46506f368e7ec89cb6b8ca59b8c`
 
 ---
 
@@ -787,7 +787,7 @@ The following table records the verifiable Git commit history on the repository:
 | `144fde1` | `feat/s1-provider-foundation` | `docs(s1): sync progress commit SHA and scanner allowlist` | Synchronized latest commit SHA in progress journal and added pragma allowlist for test revision hash. |
 | `3584126` | `feat/s1-provider-foundation` | `feat(s1): implement realtime WebSocket session and protocol` | Implemented `/ws/session` endpoint, `docs/protocol.md`, Pydantic wire models, 4-state session machine, SessionManager pipeline, 27 new tests, and DEC-0028. |
 | `35e8489` | `feat/s1-provider-foundation` | `docs(s1): sync progress commit SHA and trim protocol whitespace` | Synchronized commit hash in progress journal and cleaned trailing whitespace. |
-| *(Pending)* | `feat/s1-provider-foundation` | `feat(s1): wire push-to-talk frontend AudioWorklet and baseline benchmarks` | Implemented React `usePushToTalk` hook, `audio-recorder-worklet.js`, PTT UI with live transcript, flushable playback, `slice-baseline.md`, and `known-issues.md`. S1 vertical slice complete. |
+| `e9f73e7` | `feat/s1-provider-foundation` | `feat(s1): wire push-to-talk frontend AudioWorklet and baseline benchmarks` | Implemented React `usePushToTalk` hook, `audio-recorder-worklet.js`, PTT UI with live transcript, flushable playback, `slice-baseline.md`, and `known-issues.md`. S1 vertical slice complete. |
 
 ---
 
