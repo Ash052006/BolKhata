@@ -21,6 +21,7 @@ exception on failure — the caller decides how to respond (HTTP 503).
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from sqlalchemy import event, text
@@ -31,6 +32,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from starlette.requests import Request
 
 from bolkhata.common.logging import get_logger
 from bolkhata.config.settings import settings
@@ -88,3 +90,15 @@ async def check_database_connectivity(engine: AsyncEngine) -> None:
     conn: AsyncConnection
     async with engine.connect() as conn:
         await conn.execute(text("SELECT 1"))
+
+
+async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency yielding an isolated transaction-bound AsyncSession."""
+    session_factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
+    async with session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

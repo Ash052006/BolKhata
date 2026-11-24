@@ -45,8 +45,10 @@ config.set_main_option("sqlalchemy.url", _settings.database_url)
 # Metadata for autogenerate support.
 # Import your SQLAlchemy Base here when models are added.
 # ---------------------------------------------------------------------------
-# from bolkhata.common.base import Base
-target_metadata = None
+import bolkhata.domains  # noqa: E402, F401
+from bolkhata.common.base import Base  # noqa: E402
+
+target_metadata = Base.metadata
 
 
 # ---------------------------------------------------------------------------

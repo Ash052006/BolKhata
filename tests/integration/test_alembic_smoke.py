@@ -55,8 +55,9 @@ async def test_alembic_upgrade_and_downgrade_cycle(tmp_path: Path) -> None:
     """Run an isolated upgrade head -> verify table -> downgrade base -> verify dropped cycle."""
     project_root = Path(__file__).resolve().parent.parent.parent
     alembic_ini = project_root / "backend" / "alembic.ini"
-    versions_dir = project_root / "backend" / "alembic" / "versions"
-    temp_rev_file = versions_dir / f"{_REVISION_ID}_test.py"
+    smoke_versions_dir = tmp_path / "versions"
+    smoke_versions_dir.mkdir(parents=True, exist_ok=True)
+    temp_rev_file = smoke_versions_dir / f"{_REVISION_ID}_test.py"
 
     temp_db_file = tmp_path / "alembic_smoke.db"
     db_url = f"sqlite+aiosqlite:///{temp_db_file.absolute()}"
@@ -68,6 +69,7 @@ async def test_alembic_upgrade_and_downgrade_cycle(tmp_path: Path) -> None:
     cfg = Config(str(alembic_ini))
     cfg.set_main_option("sqlalchemy.url", db_url)
     cfg.set_main_option("script_location", str((project_root / "backend" / "alembic").absolute()))
+    cfg.set_main_option("version_locations", str(smoke_versions_dir.absolute()))
 
     # Ensure environment picks up the isolated URL
     old_db_url = os.environ.get("DATABASE_URL")

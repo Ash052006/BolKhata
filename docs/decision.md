@@ -1144,3 +1144,37 @@ Every numerical entity has mathematical provenance. All 0–100 Hindi numbers, c
 **Interview angle:**
 *Challenge:* Why not just prompt an advanced LLM like GPT-4 or Claude 3.5 to extract the transaction amount and units directly from the audio transcript?
 *Defense:* LLMs are probabilistic sequence predictors, not deterministic calculators. When evaluating real Kirana speech, LLMs frequently make subtle arithmetic errors on idioms like `dhai sau` (often interpreting it as 200 or 50) or `paune do sau` (computing 200 - 25 = 175 incorrectly as 275). In banking and ledger software, hallucinating a transaction amount is unacceptable. Our architecture enforces a hard boundary: speech recognition produces text, our deterministic Python grammar extracts and normalizes the numbers with mathematical certainty, and the LLM is restricted solely to unstructured intent resolution where rules cannot resolve the context. Money amounts never touch an LLM reasoning step.
+
+---
+
+### DEC-0030: DomainPack Framework, Rules-First Extraction Pipeline, and Append-Only Ledger
+
+- **Date:** 2026-11-20
+- **Stage:** S3 Domain Pack Framework & Ledger Extraction
+- **Status:** Implemented Decision
+- **Related files:** `backend/src/bolkhata/domains/base.py`, `backend/src/bolkhata/domains/ledger/`, `backend/src/bolkhata/domains/__init__.py`, `docs/adr/0004-domain-pack-framework-and-ledger-extraction.md`
+- **Related ADR:** [ADR 0004: DomainPack Framework and Ledger Extraction](adr/0004-domain-pack-framework-and-ledger-extraction.md)
+
+**Context:**
+BolKhata's voice pipeline must support Indian Kirana ledgers as its initial production domain, but the core speech, dialogue, and routing infrastructure must remain domain-agnostic to support future domains (e.g. pharmacy billing, mandi trade) without architectural changes. Furthermore, financial ledger records require complete auditability, zero risk of double-posting on client retries, deterministic amounts, and safe handling of customer name ambiguity.
+
+**Decision:**
+1. **DomainPack Interface Boundary:** Define abstract `DomainPack`, `DomainIntent`, `DomainAction`, and `EntityResolver` protocols in `bolkhata.domains.base`. Strictly enforce the architectural boundary: *Nothing outside `bolkhata.domains` may import from `bolkhata.domains.ledger`*. Core routing dispatches through `bolkhata.domains.get_domain_pack()` and `get_domain_router()`.
+2. **Rules-First Hierarchical Extraction:** The pipeline attempts deterministic extraction (`bolkhata.domains.ledger.parser`) first. If confidence is below threshold, an LLM structured completion (`complete_structured(messages, LedgerIntent)`) is invoked with bounded retries.
+3. **Money Safety Invariant:** Spoken numbers and currencies are always normalized through deterministic Python grammars (`numbers.py`, `units.py`). LLMs are strictly forbidden from calculating or deciding amounts.
+4. **Customer Resolution with Explicit Gray Zones:** `CustomerResolver` normalizes honorifics (*ji*, *bhai*, *seth*) and handles cross-script Devanagari/Roman mapping. Similarity $\ge 0.85$ auto-resolves, scores in $[0.65, 0.85)$ return ambiguous candidates with `is_ambiguous=True`, and scores $< 0.65$ propose a new customer. The system never silently merges distinct customers.
+5. **Append-Only Event Store with Compensating Undos:** Ledger events are stored immutably with SHA-256 idempotency keys. Reversals are written as `compensation_undo` events, preserving full historical audit trails while maintaining mathematical balance consistency.
+
+**Consequences:**
+The entire Kirana ledger domain operates as a pluggable pack. Domain-agnostic pipeline operation was verified using an isolated `DummyTaskPack`. Financial records are double-posting safe, fully auditable, and resilient to client retries.
+
+**Evidence:**
+- 14 tests in `tests/unit/test_ledger_parser.py`
+- 5 tests in `tests/unit/test_ledger_resolver.py`
+- 3 tests in `tests/unit/test_ledger_pipeline.py`
+- 4 integration tests in `tests/integration/test_ledger_api.py`
+- 2 unit tests in `tests/unit/test_domain_pack_dummy.py`
+
+**Interview angle:**
+*Challenge:* If a user clicks 'undo' on a transaction, why insert an undo event instead of deleting the original row?
+*Defense:* In accounting and financial compliance (including Indian GST and audit standards), physical deletion (`DELETE FROM`) destroys forensic auditability. By recording a compensating event (`compensation_undo`) referencing the original event ID, we maintain an immutable append-only ledger log, allow retrospective balance audits at any historical point in time, and safely handle concurrent client retries without race conditions.

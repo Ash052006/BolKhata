@@ -28,6 +28,12 @@ async def client(tmp_path: Path) -> AsyncGenerator[AsyncClient, None]:
     application.state.database_url = f"sqlite+aiosqlite:///{test_db}"
 
     async with lifespan(application):
+        async with application.state.engine.begin() as conn:
+            import bolkhata.domains  # noqa: F401
+            from bolkhata.common.base import Base
+
+            await conn.run_sync(Base.metadata.create_all)
+
         async with AsyncClient(
             transport=ASGITransport(app=application),
             base_url="http://test",

@@ -2,9 +2,9 @@
 
 > **Document Type:** Living Architecture, Engineering Journal & Technical Interview Preparation Guide
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
-> **Last Updated:** Sprint S2 (Hinglish Normalization & Evaluation Harness)
+> **Last Updated:** Sprint S3 (Domain Pack Framework & Ledger Extraction)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `442db48a08530400ce847ea6e50c701642d8b1a1`
+> **Latest Commit:** `506f5f0b5e76cf8c829498e7309095445e721ff6`
 
 ---
 
@@ -160,7 +160,7 @@ The project schedule follows the master roadmap outlined in `bolkhata-agent-prom
 | **S0** | **Production Foundation** | Monorepo layout, FastAPI factory, async DB (SQLite/Postgres), health/readiness probes, structured logging with PII redaction, Docker Compose, CI, strict Ruff/mypy gates. | Eliminates technical debt early; establishes verifiable engineering baselines before introducing non-deterministic ML models. | **Completed** |
 | **S1** | **Provider Foundation & Push-to-Talk Slice** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Apple Silicon MLX ASR adapter, WebSocket push-to-talk stream (`/ws/session`), explicit 4-state session machine, generation invariants, AudioWorklet frontend capture, and flushable PCM playback. | Enables 100% offline, deterministic CI testing; delivers a snappy, race-free voice loop with per-stage latency telemetry. | **Completed** |
 | **S2** | **Spoken-Number Parser & Evaluation Harness** | Deterministic number parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*), ground-truth audio test corpus tooling, Word Error Rate (WER) and number extraction accuracy evaluation harness, strict and tolerant normalization. | **Money safety:** Large language models hallucinate and fail at Indian colloquial arithmetic. Deterministic parsing guarantees mathematical correctness. | **Completed** |
-| **S3** | **DomainPack & Ledger Extraction** | Pluggable DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, append-only ledger schema, idempotency tokens. | Decouples speech pipeline from business logic; guarantees immutable financial audit trails and prevents double-posting. | **Planned** |
+| **S3** | **DomainPack & Ledger Extraction** | Pluggable DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, append-only ledger schema, idempotency tokens. | Decouples speech pipeline from business logic; guarantees immutable financial audit trails and prevents double-posting. | **Completed** |
 | **S4** | **Read-Back, Correction & Failure Handling** | Verbal confirmation loop, state machine (IDLE, LISTENING, THINKING, SPEAKING), voice-driven transaction corrections, network failure and audio recovery flows. | Kirana shops cannot afford silent transcription mistakes; explicit verbal read-back ensures merchant trust and operational resilience. | **Planned** |
 | **S5** | **Frontend PWA, Offline Fallback & Benchmarks** | React PWA with AudioWorklet capture, offline local-LLM fallback, hardware latency/memory profiling (Apple Silicon Mac vs Windows RTX 3050). | Delivers snappy zero-latency push-to-talk UX and empirically validates performance against latency budgets on target hardware. | **Planned** |
 | **S6** | **Evidence, Documentation & Release Freeze** | Complete benchmarking documentation, reproducible demo script, final test freeze, project release tag. | Provides verifiable proof of system performance, accuracy, and operational claims for hackathon evaluation and production readiness. | **Planned** |
@@ -417,6 +417,40 @@ In Sprint S2, we engineered the deterministic foundation for processing Indian m
   - Added 206 new unit/integration tests across `test_spoken_numbers.py` (64), `test_units_currency.py` (117), `test_eval_metrics.py` (19), `test_asr_normalizer.py` (3), and `test_eval_runner.py` (3).
   - Total test suite expanded to 384 passing tests in 0.38s.
 
+### Sprint S3: Domain Pack Framework & Ledger Extraction
+*Deliverables: ADR 0004, `docs/domain-pack-interface.md`, `docs/benchmarks/extraction-v0.md`*
+
+- **Domain Pack Abstraction Boundary (`bolkhata.domains.base`, `bolkhata.domains.__init__`):**
+  - Abstract base protocols: `DomainIntent`, `DomainAction`, `EntityProvenance`, `ResolutionResult`, `EntityResolver`, and `DomainPack`.
+  - Architecture invariant: Nothing outside `bolkhata.domains` may import directly from `bolkhata.domains.ledger`.
+  - Dynamic discovery and dispatch via `get_domain_pack()` and `get_domain_router()`.
+  - Domain-agnostic decoupling proven by `DummyTaskPack` in `tests/unit/test_domain_pack_dummy.py`.
+- **Kirana Ledger Intent & Action Schemas (`bolkhata.domains.ledger.models`, `bolkhata.domains.ledger.pack`):**
+  - Typed intent representations: `add_credit_sale`, `payment_received`, `cash_sale`, `expense`, `query_balance`, `undo_last`.
+  - Deterministic read-back generation for verbal shopkeeper confirmation.
+  - Action factory with unique SHA-256 idempotency key generation (`hash(customer_id, action_type, amount, date, client_turn_id)`).
+- **Rules-First Extraction Pipeline (`bolkhata.domains.ledger.parser`, `bolkhata.domains.ledger.pipeline`):**
+  - Rule-based parser leveraging Sprint S2 deterministic number grammar (`numbers.py`, `units.py`) and date extraction (`aaj`, `kal`, `parso`).
+  - LLM fallback (`complete_structured(messages, LedgerIntent)`) invoked strictly when rules yield low confidence (< 0.85).
+  - Field-level provenance tracking (`"rules"`, `"llm"`, `"default"`).
+  - **Money Safety Invariant:** Spoken numbers and currencies are always normalized through deterministic Python grammars. LLMs are strictly forbidden from deciding or computing money amounts.
+- **Customer Name Entity Resolution (`bolkhata.domains.ledger.resolver`):**
+  - Honorific stripping (*ji*, *bhai*, *seth*, *uncle*).
+  - Cross-script transliteration mapping (Devanagari $\leftrightarrow$ Roman phonetic representations).
+  - Three-tier RapidFuzz matching:
+    - Score $\ge 0.85$: Auto-resolve to existing customer.
+    - Score in $[0.65, 0.85)$ or candidate delta $< 0.08$: Gray-zone ambiguity flagged for verbal clarification (`is_ambiguous=True`).
+    - Score $< 0.65$: Unrecognized customer proposed for creation.
+    - **Invariant:** Never silently merge distinct customers.
+- **Append-Only Ledger Persistence & API Endpoints (`bolkhata.domains.ledger.db_models`, `bolkhata.domains.ledger.routes`):**
+  - SQLite WAL / PostgreSQL compatible schema: `Customer` and `LedgerEvent`.
+  - Endpoints: `POST /api/v1/ledger/utterance`, `POST /api/v1/ledger/entries`, `GET /api/v1/ledger/entries`, `GET /api/v1/ledger/customers`, `GET /api/v1/ledger/customers/{id}/balance`.
+  - Full idempotency protection: client retry returns existing transaction immediately without double-posting.
+  - Reversals recorded as `compensation_undo` transactions; both offset events are marked `is_compensated=True`, maintaining immutable historical audit trails while resetting active balance to ₹0.0.
+- **Test Suite Expansion:**
+  - Added 28 new tests: `test_domain_pack_dummy.py` (2), `test_ledger_parser.py` (14), `test_ledger_resolver.py` (5), `test_ledger_pipeline.py` (3), `test_ledger_api.py` (4).
+  - Full project test suite: **417 passed in 0.54s**.
+
 ---
 
 ## Section D — Important Architecture Decisions (ADRs)
@@ -428,10 +462,11 @@ In Sprint S2, we engineered the deterministic foundation for processing Indian m
 | **ADR 0003: Provider Interfaces & Registry** *(Accepted)* | Abstract base classes (`ASR`, `TTS`, `LLM`, `VAD`) + dependency-injected `ProviderRegistry`. | Direct imports of concrete speech and AI SDKs in API route handlers. | Decouples runtime from hardware; allows offline CI testing with deterministic mocks; supports Apple Silicon (Metal/MLX) in production. *(Historical note: initial dual-platform planning across Mac and PC/CUDA was superseded by DEC-0026).* | Slightly higher initial boilerplate; requires implementing mock fixtures for every new contract. |
 | **Zero-Dependency Shared Audio Utils** *(Approved)* | Python stdlib `array` module for 16kHz PCM-to-float32 normalization. | Heavy reliance on `numpy` or `scipy` in core packages. | Keeps lightweight microservices and utility scripts free of heavy C-extensions until real inference engines are imported. | Pure Python generator comprehension during conversion is slightly slower than vectorized NumPy C-loops on massive audio buffers. |
 | **Bounded ASR Concurrency** *(Approved)* | Bounded execution via `asr_max_concurrency: int = 1` in Settings. | Unbounded parallel `asyncio.to_thread` execution. | Speech inference is compute-bound and multi-threaded; unconstrained parallel calls exhaust RAM. | Simultaneous requests must queue behind an async semaphore, increasing queue latency under load. |
-| **Append-Only Ledger Safety** *(Approved - Planned S3)* | Immutable transaction entries; corrections and reversals are new compensating rows. | In-place SQL `UPDATE` / `DELETE` on transaction balances. | Financial auditability; guarantees zero data loss and simple offline synchronization conflict resolution. | Queries for current balance require aggregating transaction logs (mitigated by read-optimized balance snapshots). |
-| **Deterministic Number Parsing** *(Approved - Planned S2)* | Rule-based grammar and regex parser for Indian currency numbers. | Delegating number extraction to LLM prompts. | **Money safety:** LLMs hallucinate, suffer prompt injection, and struggle with Hindi compound numbers (*dhai sau* = 250). | Requires writing and maintaining exhaustive grammatical rule sets for Hindi, Hinglish, and English numeric terms. |
+| **Append-Only Ledger Safety** *(Accepted - S3)* | Immutable transaction entries; corrections and reversals are new compensating rows. | In-place SQL `UPDATE` / `DELETE` on transaction balances. | Financial auditability; guarantees zero data loss and simple offline synchronization conflict resolution. | Queries for current balance require aggregating transaction logs (mitigated by read-optimized balance snapshots). |
+| **Deterministic Number Parsing** *(Accepted - S2)* | Rule-based grammar and regex parser for Indian currency numbers. | Delegating number extraction to LLM prompts. | **Money safety:** LLMs hallucinate, suffer prompt injection, and struggle with Hindi compound numbers (*dhai sau* = 250). | Requires writing and maintaining exhaustive grammatical rule sets for Hindi, Hinglish, and English numeric terms. |
 | **DEC-0027: MLX Provider Architecture, Concurrency & Lifecycle Isolation** *(Approved - S1)* | Dedicated `MLXWhisperASRProvider` with injectable `MLXRuntime` boundary, bounded semaphore execution, monotonic worker counter, decoupled cancellation slot ownership, and off-loop `asyncio.to_thread` executor shutdown. | Monolithic adapter with `sys.modules` monkeypatching, unbounded threads, or blocking in-loop thread join. | Eliminates C++ `nanobind` duplicate registration `SIGABRT` crashes; prevents event-loop stalls during shutdown; guarantees concurrency slots are never leaked on coroutine cancellation. | Test harness must inject mock runtimes instead of patching global imports; slightly more boilerplate in provider initialization. |
 | **DEC-0028: Push-to-Talk WebSocket Protocol, State Machine & Generation Invariants** *(Approved - S1)* | Single `/ws/session` endpoint with explicit 4-state machine (`IDLE`, `LISTENING`, `THINKING`, `SPEAKING`), unique `generation_id` per turn, and bounded audio buffer. | WebRTC MediaStreams; separate REST polling endpoints; implicit boolean flags. | Prevents out-of-order execution, eliminates stale audio/text delivery upon client interruption, and bounds server memory. | Client must maintain WebSocket connection and handle interleaved JSON and binary frames. |
+| **ADR 0004 / DEC-0030: DomainPack Framework, Rules-First Extraction Pipeline, and Append-Only Ledger** *(Accepted - S3)* | Abstract `DomainPack` contracts in `bolkhata.domains.base`; rules-first parser with LLM fallback; rapidfuzz entity resolver with honorific stripping and gray-zone thresholds; append-only `LedgerEvent` store with SHA-256 idempotency and compensating reversals. | Tight coupling of voice routes to SQL models; direct LLM prompt arithmetic; physical SQL deletion for undo. | Decouples domain verticals from voice runtime; guarantees 100% money safety; provides full audit immutability; eliminates double-posting on client retries. | Extra abstraction layers; entity resolution gray zones require interactive user clarification rather than silent guesses. |
 
 ---
 
@@ -461,7 +496,9 @@ The following table documents the active repository layout, identifying the purp
 | `backend/src/bolkhata/realtime/protocol.py` | Pydantic wire models and parser for client/server WebSocket frames. | Used by `session.py`, `routes/session.py`. | **Implemented (S1 Stage 3)** |
 | `backend/src/bolkhata/realtime/state.py` | Explicit 4-state machine (`IDLE`, `LISTENING`, `THINKING`, `SPEAKING`). | Used by `session.py`. | **Implemented (S1 Stage 3)** |
 | `backend/src/bolkhata/realtime/session.py` | `SessionManager` orchestrating turn pipeline and latency telemetry. | Depends on providers, state machine, protocol. | **Implemented (S1 Stage 3)** |
-| `backend/src/bolkhata/domains/ledger/` | Kirana ledger DomainPack, schema, normalizers, and entities. | Implements DomainPack protocol. | *Planned (S3)* |
+| `backend/src/bolkhata/domains/base.py` | Abstract `DomainPack`, `DomainIntent`, `DomainAction`, `EntityResolver` protocols. | Base for all business domains. | **Implemented (S3)** |
+| `backend/src/bolkhata/domains/__init__.py` | Domain pack dynamic discovery and dispatch framework (`get_domain_pack`, `get_domain_router`). | Isolates domain packs from application core. | **Implemented (S3)** |
+| `backend/src/bolkhata/domains/ledger/` | Kirana ledger DomainPack (`pack.py`, `models.py`, `parser.py`, `resolver.py`, `pipeline.py`, `db_models.py`, `routes.py`). | Implements DomainPack protocol. | **Implemented (S3)** |
 | `frontend/src/App.tsx` | Root React component with health check polling. | Frontend entry point. | **Implemented (S0)** |
 | `frontend/src/apps/ledger/` | Frontend domain view boundary for kirana ledger UI. | Frontend application layer. | *Planned (S5)* |
 | `tests/unit/test_logging_redaction.py` | Unit tests for structured logging and PII redaction rules. | Verifies `logging.py`. | **Implemented (S0)** |
@@ -472,6 +509,11 @@ The following table documents the active repository layout, identifying the purp
 | `tests/unit/test_realtime_protocol.py` | Unit tests for WebSocket protocol parsing and serialization. | Verifies `realtime/protocol.py`. | **Implemented (S1 Stage 3)** |
 | `tests/unit/test_realtime_state_machine.py` | Unit tests for 4-state session transitions and illegal transition rejection. | Verifies `realtime/state.py`. | **Implemented (S1 Stage 3)** |
 | `tests/integration/test_ws_session.py` | Integration tests for full WebSocket push-to-talk turn, cancellation, and error frames. | Verifies `/ws/session`. | **Implemented (S1 Stage 3)** |
+| `tests/unit/test_domain_pack_dummy.py` | Unit tests demonstrating domain-agnostic pipeline decoupling via `DummyTaskPack`. | Verifies `domains/base.py`. | **Implemented (S3)** |
+| `tests/unit/test_ledger_parser.py` | Unit tests for deterministic rule-based Kirana ledger intent and amount parser. | Verifies `domains/ledger/parser.py`. | **Implemented (S3)** |
+| `tests/unit/test_ledger_resolver.py` | Unit tests for customer resolution (honorifics, Devanagari transliteration, gray zones). | Verifies `domains/ledger/resolver.py`. | **Implemented (S3)** |
+| `tests/unit/test_ledger_pipeline.py` | Unit tests for hierarchical extraction pipeline (rules -> LLM -> money safety invariant). | Verifies `domains/ledger/pipeline.py`. | **Implemented (S3)** |
+| `tests/integration/test_ledger_api.py` | Integration tests for ledger REST API, idempotency, customer balance, and compensating undo. | Verifies `domains/ledger/routes.py`. | **Implemented (S3)** |
 | `tests/integration/test_health.py` | Integration tests for `/health` endpoint. | Verifies API routing and JSON response. | **Implemented (S0)** |
 | `tests/integration/test_ready.py` | Integration tests for `/ready` endpoint under healthy and failed DB states. | Verifies DB connectivity and 503 handling. | **Implemented (S0)** |
 | `tests/integration/test_alembic_smoke.py` | Integration tests verifying clean Alembic migration cycles. | Verifies DB migration scripts. | **Implemented (S0)** |
@@ -768,15 +810,15 @@ Interview Topics:
 - **Frontend Push-to-Talk UI & AudioWorklet Capture:** **Completed (S1 Stage 4)** (React `usePushToTalk` hook, `audio-recorder-worklet.js` capturing 16kHz s16le PCM, hold-to-talk button, live transcript, flushable playback queue, and latency readout).
 - **Slice Baseline & Known Issues Documentation:** **Completed (S1 Stage 4)** (`docs/benchmarks/slice-baseline.md` and `docs/known-issues.md`).
 - **S2 Spoken-Number Parser & Evaluation Harness:** **Completed (Sprint S2)** (Deterministic spoken-number parser across 0–100, multipliers `sau`/`hazaar`/`lakh`/`crore`, colloquial fractions `dhai`/`derh`/`sawa`/`sadhe`/`paune`, unit & currency normalization with ambiguity detection, ASR text normalizer in `strict` and `tolerant` modes, pure-Python DP WER/CER cross-validated against `jiwer`, evaluation dataset tooling, and benchmark runner CLI).
+- **S3 DomainPack & Append-Only Ledger:** **Completed (Sprint S3)** (Abstract `DomainPack` contracts in `bolkhata.domains.base`, rules-first hierarchical extraction in `pipeline.py`, customer resolver in `resolver.py` with honorifics and gray-zone thresholds, append-only SQLite WAL / PostgreSQL `LedgerEvent` store with SHA-256 idempotency and compensating undo reversals, REST endpoints in `routes.py`, and `docs/benchmarks/extraction-v0.md`).
 - **Real Speech Inference & Evaluation:** *Not Implemented (Planned next — requires hardware smoke test on Apple Silicon Mac)*.
-- **S3 DomainPack & Append-Only Ledger:** *Pending (Next Up)*.
-- **S4 Read-Back, Confirmation & Correction Loop:** *Pending*.
+- **S4 Read-Back, Confirmation & Correction Loop:** *Pending (Next Up)*.
 - **S5 Frontend PWA & Hardware Benchmarking:** *Pending*.
 - **S6 Evidence & Release Freeze:** *Pending*.
 
 ### Next Implementation Sequence
-1. **S3 DomainPack & Ledger Extraction:** Build DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, and append-only ledger tables.
-2. **S4 Read-Back, Confirmation & Correction Loop:** Build verbal read-back templates, confirmation grammar, and voice-driven correction.
+1. **S4 Read-Back, Confirmation & Correction Loop:** Build verbal read-back templates, confirmation grammar, voice-driven correction, and provider chaos handling.
+2. **S5 Frontend PWA & Hardware Benchmarking:** Wire full ledger UI view in React PWA and run hardware latency/memory profiling on Apple Silicon M5.
 
 ---
 
@@ -786,10 +828,10 @@ Interview Topics:
 
 | Metric / Verification Gate | Latest Verified Result | What It Proves | Known Limitations |
 |---|---|---|---|
-| **Backend Unit & Integration Tests** | `384 passed in 0.38s` | All 384 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, full WebSocket turn integration, spoken numbers parser, units & currency normalization, eval metrics & jiwer cross-validation, ASR normalizer, and eval runner. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
+| **Backend Unit & Integration Tests** | `417 passed in 0.54s` | All 417 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, full WebSocket turn integration, spoken numbers parser, units & currency normalization, eval metrics & jiwer cross-validation, ASR normalizer, eval runner, dummy task pack, ledger rules parser, customer resolver, extraction pipeline, and ledger REST API. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
 | **Ruff Format Check** | `All files correctly formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
-| **Mypy Static Type Analysis** | `Success: no issues found in 35 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
+| **Mypy Static Type Analysis** | `Success: no issues found in 48 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
 | **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 246ms` | React TypeScript compilation and production bundle build succeed with zero errors. AudioWorklet capture and flushable playback queue are fully compiled. | Push-to-talk loop runs against backend WebSocket. |
 | **Pre-Commit Checks (Two Passes)** | `Passed (all 11 hooks passed twice)` | Formatting, JSON/TOML validation, large file checks, and branch protection are completely reproducible and idempotent. | Verifies static file integrity. |
 | **Secret Scanning (`detect-secrets`)** | `0 secrets detected ("results": {})` | No API keys, passwords, high-entropy tokens, or credentials exist in tracked files. | Relies on known regex patterns and entropy thresholds. |

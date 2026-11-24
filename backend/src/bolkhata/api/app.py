@@ -27,6 +27,7 @@ from bolkhata.common.db import build_engine, build_session_factory
 from bolkhata.common.logging import configure_logging, get_logger
 from bolkhata.common.registry import ProviderRegistry
 from bolkhata.config.settings import settings
+from bolkhata.domains import get_domain_router
 
 logger = get_logger(__name__)
 
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(session_router)
+    app.include_router(get_domain_router())
 
     return app
 

@@ -274,6 +274,35 @@ Using pytest-asyncio, we write tests that:
 
 ---
 
+## Topic E — Domain Architecture, Entity Resolution & Append-Only Financial Safety
+
+### Q-E1: How does the Domain Pack framework enforce architectural isolation between the core voice pipeline and domain logic?
+1. **What the interviewer wants to evaluate:** Modular architecture, dependency inversion, clean boundaries, and avoiding domain leakage.
+2. **Technically correct answer:** The core voice and dialogue engine knows nothing about credit, debit, or Kirana stores. It interacts solely with abstract contracts defined in `bolkhata.domains.base` (`DomainPack`, `DomainIntent`, `DomainAction`, `EntityResolver`). The invariant is strictly enforced: *nothing outside `bolkhata.domains` may import from `bolkhata.domains.ledger`*. Core routes dynamically dispatch via `get_domain_router()` and `get_domain_pack()`. To prove complete domain-agnosticism, our hermetic test suite implements a `DummyTaskPack` in `tests/unit/test_domain_pack_dummy.py`, proving that swapping to a todo-list or pharmacy domain requires zero changes to the underlying platform infrastructure.
+3. **BolKhata concrete example:** `backend/src/bolkhata/domains/base.py`, `backend/src/bolkhata/domains/__init__.py`, `tests/unit/test_domain_pack_dummy.py`.
+
+### Q-E2: Why does BolKhata use an append-only event store with compensating undos instead of SQL UPDATE and DELETE statements?
+1. **What the interviewer wants to evaluate:** Financial data integrity, auditability, idempotency, and concurrent consistency.
+2. **Technically correct answer:** In financial accounting and Indian GST / mercantile standards, physical deletion (`DELETE FROM`) destroys forensic auditability. If an entry is created accidentally or cancelled, a hard delete erases the historical record and breaks offline replication synchronization.
+BolKhata stores all ledger mutations as immutable append-only events (`LedgerEvent`) with unique SHA-256 idempotency keys (`hash(customer_id, event_type, amount, date, client_turn_id)`). If a network timeout causes a client to retry creating an entry, the unique key match returns the existing event immediately without double-posting. Reversals are recorded as explicit `compensation_undo` events linking to `compensated_event_id`. Both the original event and compensating event are marked `is_compensated = True`, excluding them from active balance aggregation while keeping the immutable historical audit trail 100% intact.
+3. **BolKhata concrete example:** `backend/src/bolkhata/domains/ledger/db_models.py`, `backend/src/bolkhata/domains/ledger/routes.py` (`create_ledger_entry`, `list_customers`), `tests/integration/test_ledger_api.py`.
+
+### Q-E3: How does customer name resolution handle cross-script variations (Devanagari vs Roman), honorifics, and phonetic gray zones without silent false-positive merges?
+1. **What the interviewer wants to evaluate:** Fuzzy matching algorithms, entity disambiguation, cross-lingual normalization, and safety thresholds.
+2. **Technically correct answer:** Indian retail speech mixes Hindi honorifics (*ji*, *bhai*, *uncle*, *seth*) and varying scripts (Devanagari vs Romanized Hindi).
+`CustomerResolver` handles this via a multi-stage deterministic pipeline:
+1. **Honorific Stripping:** Removes common cultural prefixes and suffixes (*"Ramesh ji"* $\to$ *"Ramesh"*).
+2. **Devanagari Transliteration:** Maps Devanagari tokens to Roman phonetic equivalents (*"रमेश"* $\to$ *"ramesh"*).
+3. **Similarity Scoring:** Uses token sort ratio via `RapidFuzz`.
+4. **Three-Tier Safety Thresholds:**
+   - Score $\ge 0.85$: Auto-resolves to the existing customer ID.
+   - Score in $[0.65, 0.85)$ or close competing candidates (score difference $< 0.08$): Gray zone $\to$ sets `is_ambiguous=True` and populates `candidates` for verbal clarification.
+   - Score $< 0.65$: Unrecognized $\to$ proposes creating a new customer record.
+The invariant is: **Never silently merge two distinct customers**.
+3. **BolKhata concrete example:** `backend/src/bolkhata/domains/ledger/resolver.py`, `tests/unit/test_ledger_resolver.py`.
+
+---
+
 ## Topic J — Interview Preparation Checklist
 
 Before walking into a technical interview, ensure you can live-code or explain:
@@ -283,12 +312,16 @@ Before walking into a technical interview, ensure you can live-code or explain:
   - `backend/src/bolkhata/asr/common.py` (PCM normalization, byte alignment, stdlib `array`).
   - `backend/src/bolkhata/common/logging.py` (Fail-closed PII scrubbing, regex, exception traversal).
   - `backend/src/bolkhata/asr/base.py` (Immutable dataclasses, async generator interfaces).
+  - `backend/src/bolkhata/domains/base.py` (`DomainPack` abstraction, provenance, idempotency).
+  - `backend/src/bolkhata/domains/ledger/resolver.py` (Customer resolution, cross-script mapping, gray-zone thresholds).
 - [ ] **Tests to Highlight:**
   - `test_multiple_providers_fail_shutdown_retried_in_reverse_startup_order` (Retry sequence).
   - `test_normalization_boundaries` ($-32768 \rightarrow -1.0$, $+32767 \rightarrow +0.99997$).
   - `test_transcript_redacted_at_all_levels` (PII scrubbing at DEBUG/INFO/WARNING/ERROR).
+  - `test_resolve_gray_zone_ambiguity` (Gray zone $[0.65, 0.85)$ returns candidate ambiguity).
+  - `test_undo_last_as_compensating_event` (Append-only compensating transaction).
 - [ ] **Key Architectural Numbers:**
   - 16 kHz Mono Signed 16-bit PCM = 32,000 bytes/sec.
   - Normalization divisor = `32768.0`.
-  - 129 passing unit/integration tests running in ~0.18s.
-  - Strict Mypy type-checking across 23 backend source files.
+  - 417 passing unit/integration tests running in ~0.55s.
+  - Strict Mypy type-checking across 48 backend source files.
