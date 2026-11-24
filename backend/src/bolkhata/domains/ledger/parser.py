@@ -71,6 +71,7 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
     if not cleaned_input:
         return None
 
+    orig_lower = cleaned_input.lower()
     cleaned_text, date_val = _extract_date_word(cleaned_input)
     t_lower = cleaned_text.lower()
     payment_mode = _extract_payment_mode(cleaned_text)
@@ -84,7 +85,49 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
             date=date_val,
         )
 
-    # 2. Query Balance Intent
+    # 2. Query Intents
+    if re.search(r"\b(?:(?:aaj\s+)?kitna\s+udhaar|aaj\s+ka\s+udhaar|kitna\s+diya)\b", orig_lower):
+        return LedgerIntent(
+            name="query_today_udhaar",
+            confidence=0.95,
+            provenance={"intent": "rules"},
+            date=date_val,
+        )
+
+    if re.search(
+        r"\b(?:(?:aaj\s+)?kitna\s+jama|(?:aaj\s+)?kitna\s+aaya|(?:aaj\s+ki\s+)?vasooli|(?:aaj\s+)?kitna\s+collection)\b",
+        orig_lower,
+    ):
+        return LedgerIntent(
+            name="query_today_collection",
+            confidence=0.95,
+            provenance={"intent": "rules"},
+            date=date_val,
+        )
+
+    if re.search(
+        r"\b(?:kisko\s+sabse\s+zyada|sabse\s+zyada\s+udhaar|sabse\s+zyada\s+baaki|top\s+debtor)\b",
+        orig_lower,
+    ):
+        return LedgerIntent(
+            name="query_top_debtors",
+            confidence=0.95,
+            provenance={"intent": "rules"},
+            date=date_val,
+        )
+
+    if re.search(r"\b(?:last\s+payment|aakhiri\s+baar\s+kab|pichla\s+payment)\b", orig_lower):
+        customer = _extract_customer_name(cleaned_text)
+        return LedgerIntent(
+            name="query_last_payment",
+            customer=customer,
+            confidence=0.95 if customer else 0.8,
+            provenance={"intent": "rules", "customer": "rules"}
+            if customer
+            else {"intent": "rules"},
+            date=date_val,
+        )
+
     if re.search(
         r"\b(?:kitna\s+baaki|balance|hisaab\s+batao|kitna\s+hisaab|kitna\s+hua)\b", t_lower
     ):

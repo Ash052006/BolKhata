@@ -21,6 +21,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from bolkhata.api.pilot import router as pilot_router
 from bolkhata.api.routes.health import router as health_router
 from bolkhata.api.routes.session import router as session_router
 from bolkhata.common.db import build_engine, build_session_factory
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(session_router)
     app.include_router(get_domain_router())
+    app.include_router(pilot_router)
 
     return app
 

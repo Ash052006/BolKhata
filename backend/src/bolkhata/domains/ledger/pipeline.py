@@ -111,6 +111,10 @@ async def extract_ledger_intent(
         "cash_sale",
         "expense",
         "query_balance",
+        "query_today_udhaar",
+        "query_today_collection",
+        "query_top_debtors",
+        "query_last_payment",
         "undo_last",
     ):
         provenance["intent"] = "llm"

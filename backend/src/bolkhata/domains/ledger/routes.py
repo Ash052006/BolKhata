@@ -11,19 +11,29 @@ Provides endpoints for:
 
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bolkhata.common.db import get_db_session
 from bolkhata.domains.ledger.db_models import Customer, LedgerEvent
 from bolkhata.domains.ledger.models import LedgerIntent
 from bolkhata.domains.ledger.pack import LedgerDomainPack
+from bolkhata.domains.ledger.parser import parse_ledger_rules
 from bolkhata.domains.ledger.pipeline import extract_ledger_intent
+from bolkhata.domains.ledger.queries import (
+    query_customer_balance,
+    query_last_payment,
+    query_today_collection,
+    query_today_udhaar,
+    query_top_debtors,
+)
 from bolkhata.domains.ledger.resolver import CustomerRecord, normalize_customer_name
 
 router = APIRouter(prefix="/api/v1/ledger", tags=["ledger"])
@@ -38,6 +48,13 @@ class UtteranceRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Raw transcription text")
     client_turn_id: str | None = Field(
         default=None, description="Optional turn token for idempotency"
+    )
+
+
+class LedgerQueryRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Query text")
+    quiet_mode: bool = Field(
+        default=False, description="Whether to suppress spoken audio for privacy"
     )
 
 
@@ -366,4 +383,255 @@ async def get_customer_balance(
         "total_credit": total_credit,
         "total_paid": total_paid,
         "uncompensated_event_count": len(events),
+    }
+
+
+@router.post("/query")
+async def execute_voice_query(
+    payload: LedgerQueryRequest,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict[str, Any]:
+    """
+    Execute a voice query against the ledger (balance, today's totals, top debtors, last payment).
+    Answers are computed deterministically via SQL. LLM is never used for arithmetic.
+    """
+    rule_intent = parse_ledger_rules(payload.text)
+    intent_name = rule_intent.name if rule_intent else "query_balance"
+
+    if intent_name == "query_today_udhaar":
+        return await query_today_udhaar(session, quiet_mode=payload.quiet_mode)
+    elif intent_name == "query_today_collection":
+        return await query_today_collection(session, quiet_mode=payload.quiet_mode)
+    elif intent_name == "query_top_debtors":
+        return await query_top_debtors(session, quiet_mode=payload.quiet_mode)
+    elif intent_name == "query_last_payment":
+        target_cust = (rule_intent.customer if rule_intent else None) or payload.text.replace(
+            "last payment", ""
+        ).strip()
+        return await query_last_payment(session, target_cust, quiet_mode=payload.quiet_mode)
+    else:
+        target_cust = (rule_intent.customer if rule_intent else None) or payload.text.replace(
+            "balance", ""
+        ).strip()
+        return await query_customer_balance(session, target_cust, quiet_mode=payload.quiet_mode)
+
+
+# ---------------------------------------------------------------------------
+# Feature F6: Data Ownership, Export & Privacy Erasure
+# ---------------------------------------------------------------------------
+
+
+@router.get("/export/csv")
+async def export_ledger_csv(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> Response:
+    """Export the entire ledger as a standard CSV file."""
+    events_q = await session.execute(
+        select(LedgerEvent, Customer.name.label("customer_name"))
+        .outerjoin(Customer, LedgerEvent.customer_id == Customer.id)
+        .order_by(LedgerEvent.created_at)
+    )
+    rows = events_q.all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "Event ID",
+            "Date",
+            "Event Type",
+            "Customer Name",
+            "Amount (INR)",
+            "Items",
+            "Notes",
+            "Is Compensated",
+            "Idempotency Key",
+        ]
+    )
+
+    for ev, cust_name in rows:
+        writer.writerow(
+            [
+                ev.id,
+                ev.created_at.isoformat(),
+                ev.event_type,
+                cust_name or "N/A",
+                f"{ev.amount:.2f}",
+                ", ".join(ev.items) if ev.items else "",
+                ev.notes or "",
+                ev.is_compensated,
+                ev.idempotency_key,
+            ]
+        )
+
+    csv_data = output.getvalue()
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="bolkhata_ledger.csv"'},
+    )
+
+
+@router.get("/export/json")
+async def export_ledger_json(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict[str, Any]:
+    """Export complete ledger data backup in JSON format."""
+    cust_q = await session.execute(select(Customer).order_by(Customer.created_at))
+    customers = cust_q.scalars().all()
+
+    evt_q = await session.execute(select(LedgerEvent).order_by(LedgerEvent.created_at))
+    events = evt_q.scalars().all()
+
+    return {
+        "version": "1.0",
+        "exported_at": uuid.uuid4().hex[:8],
+        "customers": [
+            {
+                "id": c.id,
+                "name": c.name,
+                "phone": c.phone,
+                "created_at": c.created_at.isoformat(),
+            }
+            for c in customers
+        ],
+        "events": [
+            {
+                "id": e.id,
+                "customer_id": e.customer_id,
+                "event_type": e.event_type,
+                "amount": e.amount,
+                "currency": e.currency,
+                "items": e.items,
+                "quantity": e.quantity,
+                "unit": e.unit,
+                "notes": e.notes,
+                "is_compensated": e.is_compensated,
+                "idempotency_key": e.idempotency_key,
+                "created_at": e.created_at.isoformat(),
+            }
+            for e in events
+        ],
+    }
+
+
+@router.get("/customers/{customer_id}/statement")
+async def get_customer_statement(
+    customer_id: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict[str, Any]:
+    """Generate printable statement of account for a specific customer."""
+    cust_q = await session.execute(select(Customer).where(Customer.id == customer_id))
+    cust = cust_q.scalar_one_or_none()
+    if cust is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Customer with ID '{customer_id}' not found.",
+        )
+
+    evt_q = await session.execute(
+        select(LedgerEvent)
+        .where(LedgerEvent.customer_id == customer_id)
+        .order_by(LedgerEvent.created_at)
+    )
+    events = evt_q.scalars().all()
+
+    running_bal = 0.0
+    transactions: list[dict[str, Any]] = []
+
+    for e in events:
+        if not e.is_compensated:
+            if e.event_type in ("add_credit_sale", "credit_sale"):
+                running_bal += e.amount
+            elif e.event_type == "payment_received":
+                running_bal -= e.amount
+            elif e.event_type == "compensation_undo":
+                running_bal += e.amount
+
+        transactions.append(
+            {
+                "id": e.id,
+                "date": e.created_at.strftime("%Y-%m-%d %H:%M"),
+                "event_type": e.event_type,
+                "amount": e.amount,
+                "items": e.items,
+                "is_compensated": e.is_compensated,
+                "running_balance": round(running_bal, 2),
+            }
+        )
+
+    return {
+        "statement_title": f"BolKhata Statement - {cust.name}",
+        "customer": {
+            "id": cust.id,
+            "name": cust.name,
+            "phone": cust.phone,
+        },
+        "total_outstanding_balance": round(running_bal, 2),
+        "total_transactions": len(transactions),
+        "transactions": transactions,
+    }
+
+
+@router.delete("/customers/{customer_id}", status_code=status.HTTP_200_OK)
+async def delete_customer_data(
+    customer_id: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict[str, Any]:
+    """
+    Erase customer personal data per DPDP Act Right to Erasure (ADR 0006).
+    Scrubs name and phone number in place while preserving append-only financial audit records.
+    """
+    cust_q = await session.execute(select(Customer).where(Customer.id == customer_id))
+    cust = cust_q.scalar_one_or_none()
+    if cust is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Customer with ID '{customer_id}' not found.",
+        )
+
+    # Anonymize PII
+    cust.name = "Deleted Customer"
+    cust.normalized_name = f"deleted_{cust.id[:8]}"
+    cust.phone = None
+
+    # Scrub notes on associated ledger events
+    evts_q = await session.execute(
+        select(LedgerEvent).where(LedgerEvent.customer_id == customer_id)
+    )
+    for ev in evts_q.scalars().all():
+        ev.notes = "[Customer PII erased per DPDP Act]"
+
+    await session.commit()
+    return {
+        "status": "anonymized",
+        "message": f"Customer '{customer_id}' personal data has been erased. Financial audit ledger preserved.",
+        "customer_id": customer_id,
+    }
+
+
+@router.delete("/data", status_code=status.HTTP_200_OK)
+async def wipe_all_data(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    confirm: Annotated[
+        bool, Query(description="Explicit confirmation flag required to wipe all data")
+    ] = False,
+) -> dict[str, Any]:
+    """
+    Wipe all ledger transactions and customer records.
+    Requires explicit confirm=True query parameter.
+    """
+    if not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Safety guard: confirm=true must be explicitly passed to wipe all data.",
+        )
+
+    await session.execute(delete(LedgerEvent))
+    await session.execute(delete(Customer))
+    await session.commit()
+
+    return {
+        "status": "wiped",
+        "message": "All customer records and ledger events have been permanently deleted.",
     }

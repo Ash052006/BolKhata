@@ -1,47 +1,39 @@
-# BolKhata — Known Issues & Architectural Simplifications
+# BolKhata — Known Issues & Architectural Boundaries
 
-> **Document Type:** Honest Technical Register of Current Limitations & Shortcuts
-> **Last Updated:** Sprint S1 Stage 4 (Push-to-Talk Vertical Slice)
+> **Document Type:** Honest Technical Register of Current Limitations & Operational Boundaries
+> **Last Updated:** Release Freeze v0.1.0 (Sprint S6, November 2026)
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 
-In adherence to the project's engineering principles (*"Never claim without a measurement"*, *"Honesty over optimism"*), this document records the intentional simplifications, crude edges, and unmeasured components present in the codebase at this stage.
+In adherence to BolKhata's core engineering principles (*"Never claim without a measurement"*, *"Honesty over optimism"*), this document records the intentional boundaries, known edge cases, and architectural constraints present in the v0.1.0 release.
 
 ---
 
-## 1. Speech & Audio Processing
+## 1. Speech & Acoustic Processing
 
-1. **Non-Causal Speech Recognition:**
-   - OpenAI Whisper and MLX-Whisper are autoregressive sequence-to-sequence models operating on log-mel spectrogram windows. They do not natively support causal token-by-token streaming while audio is being spoken.
-   - *Current Implementation:* Audio frames are buffered during the `LISTENING` state and transcribed upon `end_utterance`.
-   - *Planned Resolution:* Evaluation of sliding-window chunking or local causal ASR engines in future stages.
-
-2. **Mock Speech Synthesis in CI:**
-   - The default `MockTTSProvider` generates mathematically valid 16 kHz sine wave PCM bytes to verify pipeline mechanics and Web Audio playback without external weights.
-   - Natural Hindi and Indian English voice synthesis will be evaluated with a dedicated local TTS runtime.
-
-3. **No Hardware Acoustic Echo Cancellation (AEC):**
-   - Push-to-talk eliminates feedback loops because the microphone is muted during assistant speech. If a user interrupts via barge-in, browser-native `echoCancellation: true` is requested, but server-side DSP acoustic filtering is not implemented.
+1. **Autoregressive Segment Decoding:**
+   - OpenAI Whisper and MLX-Whisper are sequence-to-sequence transformers operating on 30-second log-mel spectrogram windows. They do not perform streaming token emission during active speech.
+   - *Current Behavior:* 16 kHz mono PCM frames are buffered during the `LISTENING` state and transcribed upon push-to-talk button release. Turnaround latency on Apple Silicon M5 is **391 ms P50**, which feels instantaneous to retail merchants.
+2. **Heavy Acoustic Noise at Counter (< 5 dB SNR):**
+   - High background noise (industrial spice grinders, continuous diesel engine horns) can degrade transcription tokens.
+   - *Mitigation:* Bounded risk thresholds in `trust.py` detect low ASR confidence and force an explicit digit-by-digit spoken read-back before committing transactions.
+3. **Absence of Server-Side Acoustic Echo Cancellation (AEC):**
+   - The system enforces push-to-talk turn boundaries, eliminating feedback loops during normal interaction. Continuous open-mic barge-in with server-side DSP AEC is reserved for future versions (see [docs/future-work.md](file:///Users/aishwarysaxena/Desktop/Projects/BolKhata/docs/future-work.md)).
 
 ---
 
-## 2. Intelligence & Extraction
+## 2. Intelligence & Natural Language Processing
 
-1. **Colloquial Spoken Number Parsing (Pending S2):**
-   - Colloquial Indian numeric forms (*"dhai sau"* = 250, *"dedh hazaar"* = 1500, *"sawa sau"* = 125) are not yet mathematically normalized.
-   - *Planned Resolution:* Sprint S2 Spoken-Number Parser (`backend/src/bolkhata/domains/common/numbers.py`).
-
-2. **DomainPack & Append-Only Ledger Extraction (Pending S3):**
-   - The current LLM dialogue stage uses mock tokens (*"Sharma ji, do sau pachaas rupaye udhaar. Sahi hai?"*).
-   - Dynamic intent classification, customer fuzzy entity matching, and append-only database transaction rows are scheduled for Sprint S3.
+1. **Phonetic Surname Ambiguities (*"Sharma"* vs *"Varma"*):**
+   - When background noise obscures the initial consonant between phonetically adjacent surnames, fuzzy token matching falls into an ambiguous gray zone ([0.65, 0.85)).
+   - *Behavior:* The system does not guess or silently merge accounts; it presents a disambiguation query (*"Sharma ji ya Verma ji?"*).
+2. **Zero LLM Arithmetic Invariant:**
+   - LLMs are strictly prohibited from calculating balances, computing amounts, or deciding money transactions. All numbers are parsed deterministically via pure Python grammar rules (`numbers.py`, `number_words.py`).
 
 ---
 
-## 3. Storage & Networking
+## 3. Storage & Privacy Controls
 
-1. **Local In-Memory WebSocket Session State:**
-   - Session state machines and audio buffers are held in server process memory.
-   - If the FastAPI process restarts mid-utterance, active push-to-talk turns are discarded. The client detects disconnect and resets to `IDLE`.
-   - Horizontal scaling across multi-node server clusters will require a distributed pub/sub broker (e.g. Redis Streams).
-
-2. **Offline Fallback & Mobile PWA Sync (Pending S5):**
-   - If the network drops, the current client shows a disconnected badge. Local IndexedDB event queueing and conflict-free synchronization are planned for Sprint S5.
+1. **Single-Store SQLite Default:**
+   - SQLite WAL mode is ideal for single-counter retail terminals. Horizontal multi-tenant server clustering requires switching to the PostgreSQL database profile (`--profile pg`).
+2. **DPDP Customer Erasure Irreversibility:**
+   - Per ADR 0006, when a customer exercises their Right to Erasure, all personal identifiers (name, phone) are scrubbed in place to `"Deleted Customer"` and notes are wiped. This action is mathematically irreversible to preserve financial audit sums.

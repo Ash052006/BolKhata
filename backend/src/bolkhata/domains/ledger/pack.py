@@ -66,6 +66,14 @@ class LedgerDomainPack(DomainPack):
         elif act_type == "query_balance":
             bal = params.get("balance", amt_str)
             return f"{cust} ka hisaab {bal} rupaye baaki hai."
+        elif act_type == "query_today_udhaar":
+            return "Aaj ka kul udhaar hisaab."
+        elif act_type == "query_today_collection":
+            return "Aaj ki kul vasooli hisaab."
+        elif act_type == "query_top_debtors":
+            return "Sabse zyada udhaar kiska hai."
+        elif act_type == "query_last_payment":
+            return f"{cust} ka aakhiri payment hisaab."
         elif act_type == "undo_last":
             return "Pichla hisaab cancel kiya gaya."
         return f"{act_type} confirm karein?"
@@ -97,8 +105,8 @@ class LedgerDomainPack(DomainPack):
             "provenance": intent.provenance,
         }
 
-        # Query balance does not mutate ledger and does not strictly require confirmation
-        requires_conf = intent.name != "query_balance"
+        # Query intents do not mutate ledger and do not strictly require confirmation
+        requires_conf = not intent.name.startswith("query_")
 
         return DomainAction(
             action_type=intent.name,
