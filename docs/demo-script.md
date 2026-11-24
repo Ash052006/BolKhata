@@ -1,7 +1,7 @@
 # BolKhata 90-Second Live Demonstration Script
 
-> **Objective:** Deliver a crisp, reproducible 90-second end-to-end demonstration of BolKhata's core loop, voice correction, offline fallback, and privacy controls.  
-> **Target Audience:** Hackathon Judges, Kirana Retailers, and Technical Reviewers.  
+> **Objective:** Deliver a crisp, reproducible 90-second end-to-end demonstration of BolKhata's core loop, voice correction, offline fallback, and privacy controls.
+> **Target Audience:** Hackathon Judges, Kirana Retailers, and Technical Reviewers.
 > **Prerequisites:** Run `./scripts/demo_reset.sh` before presenting to ensure deterministic seed state.
 
 ---

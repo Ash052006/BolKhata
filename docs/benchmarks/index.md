@@ -1,7 +1,7 @@
 # BolKhata Benchmark Catalog & Empirical Evidence Index
 
-> **Target Platform:** Apple Silicon MacBook Air M5 (16 GB Unified Memory, macOS Darwin arm64)  
-> **Evaluation Date:** November 2026  
+> **Target Platform:** Apple Silicon MacBook Air M5 (16 GB Unified Memory, macOS Darwin arm64)
+> **Evaluation Date:** November 2026
 > **Repository Policy:** Zero data fabrication. All metrics are measured from deterministic fixtures or native hardware runs.
 
 ---

@@ -28,7 +28,7 @@ from bolkhata.domains.ledger.db_models import Customer, LedgerEvent
 
 async def reset_and_seed():
     engine = create_async_engine(settings.database_url, echo=False)
-    
+
     # Ensure tables exist
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

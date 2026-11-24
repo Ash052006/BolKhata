@@ -1,7 +1,7 @@
 # BolKhata Architectural Registry: Deliberate Shortcuts & Future Roadmap
 
-> **Document Classification:** Engineering Transparency & Technical Debt Register  
-> **Repository:** BolKhata (बोलखाता)  
+> **Document Classification:** Engineering Transparency & Technical Debt Register
+> **Repository:** BolKhata (बोलखाता)
 > **Status:** Release Freeze v0.1.0 (November 2026)
 
 ---
