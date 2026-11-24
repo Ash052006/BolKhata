@@ -2,9 +2,9 @@
 
 > **Document Type:** Living Architecture, Engineering Journal & Technical Interview Preparation Guide
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
-> **Last Updated:** Sprint S3 (Domain Pack Framework & Ledger Extraction)
+> **Last Updated:** Sprint S4 (Trust UX, Correction, and Failure Handling)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `1457296766cb830113c4e5c54e0bcfdf2ca6d585`
+> **Latest Commit:** `c8f27cf5c873ad3234d7285627e7d6928e46955c`
 
 ---
 
@@ -161,7 +161,7 @@ The project schedule follows the master roadmap outlined in `bolkhata-agent-prom
 | **S1** | **Provider Foundation & Push-to-Talk Slice** | Abstract provider interfaces (`ASR`, `TTS`, `LLM`, `VAD`), deterministic offline mocks, thread-safe DI registry with lifecycle rollbacks, 16kHz PCM utilities, Apple Silicon MLX ASR adapter, WebSocket push-to-talk stream (`/ws/session`), explicit 4-state session machine, generation invariants, AudioWorklet frontend capture, and flushable PCM playback. | Enables 100% offline, deterministic CI testing; delivers a snappy, race-free voice loop with per-stage latency telemetry. | **Completed** |
 | **S2** | **Spoken-Number Parser & Evaluation Harness** | Deterministic number parser for Hindi/Hinglish numeric idioms (*dhai sau*, *dedh hazaar*), ground-truth audio test corpus tooling, Word Error Rate (WER) and number extraction accuracy evaluation harness, strict and tolerant normalization. | **Money safety:** Large language models hallucinate and fail at Indian colloquial arithmetic. Deterministic parsing guarantees mathematical correctness. | **Completed** |
 | **S3** | **DomainPack & Ledger Extraction** | Pluggable DomainPack protocol, kirana transaction extraction schema, customer name entity resolution, append-only ledger schema, idempotency tokens. | Decouples speech pipeline from business logic; guarantees immutable financial audit trails and prevents double-posting. | **Completed** |
-| **S4** | **Read-Back, Correction & Failure Handling** | Verbal confirmation loop, state machine (IDLE, LISTENING, THINKING, SPEAKING), voice-driven transaction corrections, network failure and audio recovery flows. | Kirana shops cannot afford silent transcription mistakes; explicit verbal read-back ensures merchant trust and operational resilience. | **Planned** |
+| **S4** | **Read-Back, Correction & Failure Handling** | Verbal confirmation loop, state machine (IDLE, LISTENING, THINKING, SPEAKING), voice-driven transaction corrections, network failure and audio recovery flows. | Kirana shops cannot afford silent transcription mistakes; explicit verbal read-back ensures merchant trust and operational resilience. | **Completed** |
 | **S5** | **Frontend PWA, Offline Fallback & Benchmarks** | React PWA with AudioWorklet capture, offline local-LLM fallback, hardware latency/memory profiling (Apple Silicon Mac vs Windows RTX 3050). | Delivers snappy zero-latency push-to-talk UX and empirically validates performance against latency budgets on target hardware. | **Planned** |
 | **S6** | **Evidence, Documentation & Release Freeze** | Complete benchmarking documentation, reproducible demo script, final test freeze, project release tag. | Provides verifiable proof of system performance, accuracy, and operational claims for hackathon evaluation and production readiness. | **Planned** |
 
@@ -451,6 +451,31 @@ In Sprint S2, we engineered the deterministic foundation for processing Indian m
   - Added 28 new tests: `test_domain_pack_dummy.py` (2), `test_ledger_parser.py` (14), `test_ledger_resolver.py` (5), `test_ledger_pipeline.py` (3), `test_ledger_api.py` (4).
   - Full project test suite: **417 passed in 0.54s**.
 
+### Sprint S4: Trust UX, Voice Correction, and Failure Handling
+*Deliverables: ADR 0005, DEC-0031, `number_words.py`, `confirmation.py`, `trust.py`, `fallbacks.py`*
+
+- **Deterministic Mathematical Spoken Read-Back (`bolkhata.domains.common.number_words`):**
+  - Pure-Python deterministic number-to-words conversion for Hindi (Romanized and Devanagari) and English across numbers 0–1,00,00,000 (crores), including fractional paise.
+  - Digit-by-digit spoken pronunciation for strict high-risk confirmation.
+  - Zero-LLM architecture guarantees amounts are spoken exactly as stored.
+- **Confirmation Grammar (`bolkhata.domains.common.confirmation`):**
+  - Robust multi-lingual grammar parsing affirmative tokens (`haan`, `sahi hai`, `theek hai`, `likh do`, `yes`, `हाँ`, `ठीक है`), negative rejections (`nahi`, `galat`, `no`), and cancellations (`ruko`, `cancel`, `रद्द करो`).
+  - **Safety Invariant:** Any ambiguous, uncommitted, or hesitation phrase (e.g. *"pata nahi"*, *"ek second"*) strictly maps to `UNCLEAR`, triggering a verbal re-ask rather than committing.
+- **Trust UX & In-Flight Voice Correction (`bolkhata.domains.ledger.trust`):**
+  - Mutable `PendingEntry` state for uncommitted transactions.
+  - **Hard Confirmation Guard:** `confirm_pending_entry` raises an unbypassable exception if `is_confirmed` is False (verified by dedicated bypass rejection test).
+  - High-risk threshold evaluation: amounts $\ge ₹5,000$, ASR confidence $< 0.80$, ambiguous numbers, or unverified customers trigger strict verbal warnings with digit-by-digit pronunciation.
+  - Voice correction slot patching (`apply_voice_correction`): updates amount, customer, date, or items from spoken patches (*"nahi teen sau nahi, teen sau pachaas"*), with bounded rounds (max 3) before falling back to manual screen review.
+  - 'Aaj ka hisaab' daily summary generator aggregating stored append-only ledger events into spoken Hindi templates.
+- **Circuit-Breaker Fallbacks & Local Retry Queue (`bolkhata.domains.ledger.fallbacks`):**
+  - ASR failure $\to$ typed-input prompt fallback.
+  - LLM failure $\to$ deterministic rules-only parser fallback with notice.
+  - TTS failure $\to$ visual on-screen read-back without blocking transaction.
+  - Database write failure $\to$ in-memory `LocalRetryQueue` preserving exact SHA-256 idempotency keys, enabling safe replay without double-posting.
+- **Test Suite Expansion:**
+  - Added 96 new unit and integration tests: `test_number_words.py` (29), `test_confirmation_grammar.py` (51), `test_trust_correction.py` (9), `test_daily_summary.py` (1), `test_voice_correction_flow.py` (1), `test_provider_chaos.py` (5).
+  - Total test suite expanded to **513 passing tests in 0.65s**.
+
 ---
 
 ## Section D — Important Architecture Decisions (ADRs)
@@ -467,6 +492,7 @@ In Sprint S2, we engineered the deterministic foundation for processing Indian m
 | **DEC-0027: MLX Provider Architecture, Concurrency & Lifecycle Isolation** *(Approved - S1)* | Dedicated `MLXWhisperASRProvider` with injectable `MLXRuntime` boundary, bounded semaphore execution, monotonic worker counter, decoupled cancellation slot ownership, and off-loop `asyncio.to_thread` executor shutdown. | Monolithic adapter with `sys.modules` monkeypatching, unbounded threads, or blocking in-loop thread join. | Eliminates C++ `nanobind` duplicate registration `SIGABRT` crashes; prevents event-loop stalls during shutdown; guarantees concurrency slots are never leaked on coroutine cancellation. | Test harness must inject mock runtimes instead of patching global imports; slightly more boilerplate in provider initialization. |
 | **DEC-0028: Push-to-Talk WebSocket Protocol, State Machine & Generation Invariants** *(Approved - S1)* | Single `/ws/session` endpoint with explicit 4-state machine (`IDLE`, `LISTENING`, `THINKING`, `SPEAKING`), unique `generation_id` per turn, and bounded audio buffer. | WebRTC MediaStreams; separate REST polling endpoints; implicit boolean flags. | Prevents out-of-order execution, eliminates stale audio/text delivery upon client interruption, and bounds server memory. | Client must maintain WebSocket connection and handle interleaved JSON and binary frames. |
 | **ADR 0004 / DEC-0030: DomainPack Framework, Rules-First Extraction Pipeline, and Append-Only Ledger** *(Accepted - S3)* | Abstract `DomainPack` contracts in `bolkhata.domains.base`; rules-first parser with LLM fallback; rapidfuzz entity resolver with honorific stripping and gray-zone thresholds; append-only `LedgerEvent` store with SHA-256 idempotency and compensating reversals. | Tight coupling of voice routes to SQL models; direct LLM prompt arithmetic; physical SQL deletion for undo. | Decouples domain verticals from voice runtime; guarantees 100% money safety; provides full audit immutability; eliminates double-posting on client retries. | Extra abstraction layers; entity resolution gray zones require interactive user clarification rather than silent guesses. |
+| **ADR 0005 / DEC-0031: Trust UX, Voice Correction Patches, and Circuit-Breaker Graceful Degradation** *(Accepted - S4)* | Deterministic number-to-words spoken read-back; confirmation grammar with ambiguity re-ask; hard confirmation invariant on save; mutable `PendingEntry` voice patching; high-risk thresholds with digit-by-digit read-back; typed-input, visual-only, and local retry queue fallbacks. | Trusting LLM text generation for read-back; auto-confirming on silence; hard-crashing on provider timeouts. | Eliminates auditory miscommunication and silent balance corruption; permits rapid hands-free verbal error correction; maintains complete resilience across provider outages. | Slight latency overhead during multi-turn correction; requires maintaining localized spoken number mappings. |
 
 ---
 
@@ -511,9 +537,19 @@ The following table documents the active repository layout, identifying the purp
 | `tests/integration/test_ws_session.py` | Integration tests for full WebSocket push-to-talk turn, cancellation, and error frames. | Verifies `/ws/session`. | **Implemented (S1 Stage 3)** |
 | `tests/unit/test_domain_pack_dummy.py` | Unit tests demonstrating domain-agnostic pipeline decoupling via `DummyTaskPack`. | Verifies `domains/base.py`. | **Implemented (S3)** |
 | `tests/unit/test_ledger_parser.py` | Unit tests for deterministic rule-based Kirana ledger intent and amount parser. | Verifies `domains/ledger/parser.py`. | **Implemented (S3)** |
+| `backend/src/bolkhata/domains/common/number_words.py` | Deterministic number-to-words generator (Hindi Roman, Devanagari, English). | Used by read-back templates and daily digest. | **Implemented (S4)** |
+| `backend/src/bolkhata/domains/common/confirmation.py` | Confirmation and correction grammar parser (Hindi/English/Hinglish). | Used by trust manager and dialogue turns. | **Implemented (S4)** |
+| `backend/src/bolkhata/domains/ledger/trust.py` | PendingEntry state, risk thresholds, voice correction patching, daily summary. | Core trust UX for Kirana ledger. | **Implemented (S4)** |
+| `backend/src/bolkhata/domains/ledger/fallbacks.py` | Circuit-breaker fallbacks and LocalRetryQueue preserving idempotency keys. | Fault tolerance and chaos handling. | **Implemented (S4)** |
 | `tests/unit/test_ledger_resolver.py` | Unit tests for customer resolution (honorifics, Devanagari transliteration, gray zones). | Verifies `domains/ledger/resolver.py`. | **Implemented (S3)** |
 | `tests/unit/test_ledger_pipeline.py` | Unit tests for hierarchical extraction pipeline (rules -> LLM -> money safety invariant). | Verifies `domains/ledger/pipeline.py`. | **Implemented (S3)** |
 | `tests/integration/test_ledger_api.py` | Integration tests for ledger REST API, idempotency, customer balance, and compensating undo. | Verifies `domains/ledger/routes.py`. | **Implemented (S3)** |
+| `tests/unit/test_number_words.py` | Unit tests for deterministic number-to-words conversions. | Verifies `common/number_words.py`. | **Implemented (S4)** |
+| `tests/unit/test_confirmation_grammar.py` | Unit tests for confirmation grammar (yes/no/cancel/correction/unclear). | Verifies `common/confirmation.py`. | **Implemented (S4)** |
+| `tests/unit/test_trust_correction.py` | Unit tests for risk thresholds, voice correction patches, and bypass rejection. | Verifies `domains/ledger/trust.py`. | **Implemented (S4)** |
+| `tests/unit/test_daily_summary.py` | Unit tests for 'Aaj ka hisaab' daily digest aggregation. | Verifies `domains/ledger/trust.py`. | **Implemented (S4)** |
+| `tests/integration/test_voice_correction_flow.py` | Integration test for scripted multi-turn voice correction and compensating undo. | Verifies full trust dialogue flow. | **Implemented (S4)** |
+| `tests/integration/test_provider_chaos.py` | Chaos integration tests for mid-turn provider drops, retry queues, and metrics. | Verifies `fallbacks.py`. | **Implemented (S4)** |
 | `tests/integration/test_health.py` | Integration tests for `/health` endpoint. | Verifies API routing and JSON response. | **Implemented (S0)** |
 | `tests/integration/test_ready.py` | Integration tests for `/ready` endpoint under healthy and failed DB states. | Verifies DB connectivity and 503 handling. | **Implemented (S0)** |
 | `tests/integration/test_alembic_smoke.py` | Integration tests verifying clean Alembic migration cycles. | Verifies DB migration scripts. | **Implemented (S0)** |
@@ -811,14 +847,14 @@ Interview Topics:
 - **Slice Baseline & Known Issues Documentation:** **Completed (S1 Stage 4)** (`docs/benchmarks/slice-baseline.md` and `docs/known-issues.md`).
 - **S2 Spoken-Number Parser & Evaluation Harness:** **Completed (Sprint S2)** (Deterministic spoken-number parser across 0–100, multipliers `sau`/`hazaar`/`lakh`/`crore`, colloquial fractions `dhai`/`derh`/`sawa`/`sadhe`/`paune`, unit & currency normalization with ambiguity detection, ASR text normalizer in `strict` and `tolerant` modes, pure-Python DP WER/CER cross-validated against `jiwer`, evaluation dataset tooling, and benchmark runner CLI).
 - **S3 DomainPack & Append-Only Ledger:** **Completed (Sprint S3)** (Abstract `DomainPack` contracts in `bolkhata.domains.base`, rules-first hierarchical extraction in `pipeline.py`, customer resolver in `resolver.py` with honorifics and gray-zone thresholds, append-only SQLite WAL / PostgreSQL `LedgerEvent` store with SHA-256 idempotency and compensating undo reversals, REST endpoints in `routes.py`, and `docs/benchmarks/extraction-v0.md`).
+- **S4 Read-Back, Confirmation & Correction Loop:** **Completed (Sprint S4)** (Deterministic spoken number-to-words in `number_words.py`, multi-lingual confirmation grammar in `confirmation.py` with ambiguity re-ask, hard confirmation invariant in `trust.py`, mutable `PendingEntry` voice correction patching, high-risk threshold read-backs with digit-by-digit pronunciation, 'aaj ka hisaab' daily digest, and circuit-breaker fallbacks in `fallbacks.py` with `LocalRetryQueue`).
 - **Real Speech Inference & Evaluation:** *Not Implemented (Planned next — requires hardware smoke test on Apple Silicon Mac)*.
-- **S4 Read-Back, Confirmation & Correction Loop:** *Pending (Next Up)*.
-- **S5 Frontend PWA & Hardware Benchmarking:** *Pending*.
+- **S5 Frontend PWA & Hardware Benchmarking:** *Pending (Next Up)*.
 - **S6 Evidence & Release Freeze:** *Pending*.
 
 ### Next Implementation Sequence
-1. **S4 Read-Back, Confirmation & Correction Loop:** Build verbal read-back templates, confirmation grammar, voice-driven correction, and provider chaos handling.
-2. **S5 Frontend PWA & Hardware Benchmarking:** Wire full ledger UI view in React PWA and run hardware latency/memory profiling on Apple Silicon M5.
+1. **S5 Frontend PWA & Hardware Benchmarking:** Wire full ledger UI view in React PWA (`frontend/src/apps/ledger`), add privacy consent screen (`docs/privacy.md`), implement client-side offline indicator, and benchmark hardware latency/memory profiling on Apple Silicon M5.
+2. **S6 Evidence & Release Freeze:** Final reproducible demo script, README updates, benchmark summaries, and v0.1.0 release freeze.
 
 ---
 
@@ -828,10 +864,10 @@ Interview Topics:
 
 | Metric / Verification Gate | Latest Verified Result | What It Proves | Known Limitations |
 |---|---|---|---|
-| **Backend Unit & Integration Tests** | `417 passed in 0.54s` | All 417 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, full WebSocket turn integration, spoken numbers parser, units & currency normalization, eval metrics & jiwer cross-validation, ASR normalizer, eval runner, dummy task pack, ledger rules parser, customer resolver, extraction pipeline, and ledger REST API. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
+| **Backend Unit & Integration Tests** | `513 passed in 0.65s` | All 513 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, full WebSocket turn integration, spoken numbers parser, units & currency normalization, eval metrics & jiwer cross-validation, ASR normalizer, eval runner, dummy task pack, ledger rules parser, customer resolver, extraction pipeline, ledger REST API, number-to-words generator, confirmation grammar, trust manager, voice correction patching, daily summary, scripted voice correction dialogue flow, and provider chaos resilience. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
 | **Ruff Format Check** | `All files correctly formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
-| **Mypy Static Type Analysis** | `Success: no issues found in 48 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
+| **Mypy Static Type Analysis** | `Success: no issues found in 52 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
 | **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 246ms` | React TypeScript compilation and production bundle build succeed with zero errors. AudioWorklet capture and flushable playback queue are fully compiled. | Push-to-talk loop runs against backend WebSocket. |
 | **Pre-Commit Checks (Two Passes)** | `Passed (all 11 hooks passed twice)` | Formatting, JSON/TOML validation, large file checks, and branch protection are completely reproducible and idempotent. | Verifies static file integrity. |
 | **Secret Scanning (`detect-secrets`)** | `0 secrets detected ("results": {})` | No API keys, passwords, high-entropy tokens, or credentials exist in tracked files. | Relies on known regex patterns and entropy thresholds. |

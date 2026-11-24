@@ -303,6 +303,29 @@ The invariant is: **Never silently merge two distinct customers**.
 
 ---
 
+## Topic F — Trust UX, Voice Correction & Chaos Resilience
+
+### Q-F1: How does BolKhata prevent unconfirmed transactions from corrupting financial ledger records?
+1. **What the interviewer wants to evaluate:** Hard system invariants, defensive API design, and dialogue state verification.
+2. **Technically correct answer:** In hands-free voice applications, users may mumble, hesitate, or get cut off by background noise. Defaulting ambiguous responses to 'yes' or auto-committing without verbal verification is fatal in fintech. BolKhata enforces a strict code-level guard: `confirm_pending_entry(pending)` verifies `if not pending.is_confirmed: raise ValueError(...)`. The confirmation grammar evaluates affirmative tokens (`haan`, `sahi hai`, `theek hai`, `likh do`, `yes`, `हाँ`, `ठीक है`) and rejection tokens (`nahi`, `galat`, `no`). Crucially, any unrecognized, ambiguous, or hesitation phrase (e.g. *"pata nahi"*, *"ek second"*) strictly maps to `UNCLEAR`, triggering a verbal re-ask rather than committing.
+3. **BolKhata concrete example:** `tests/unit/test_trust_correction.py::test_hard_confirmation_safety_bypass_rejected` and `backend/src/bolkhata/domains/common/confirmation.py`.
+
+### Q-F2: How does voice correction work without restarting the entire dialogue turn?
+1. **What the interviewer wants to evaluate:** Incremental dialogue management, slot patching, and state preservation.
+2. **Technically correct answer:** Instead of restarting from scratch when a merchant spots an error, BolKhata maintains an uncommitted `PendingEntry`. When the merchant says *"nahi teen sau nahi, teen sau pachaas"* or *"customer Verma ji hai"*, the confirmation parser detects `ConfirmationType.CORRECTION`. The `apply_voice_correction` engine identifies the target slot (`amount`, `customer`, `date`, or `items`), updates the pending model in place, records an audit trail in `patch_history`, increments the `correction_count`, and generates an updated read-back confirmation. To prevent infinite loops caused by severe acoustic noise, corrections are bounded (max 3 rounds) before prompting manual screen review.
+3. **BolKhata concrete example:** `backend/src/bolkhata/domains/ledger/trust.py` (`PendingEntry`, `apply_voice_correction`), `tests/integration/test_voice_correction_flow.py`.
+
+### Q-F3: How does the system degrade when individual AI providers or database connections crash mid-turn?
+1. **What the interviewer wants to evaluate:** Fault tolerance, circuit breakers, and offline resilience.
+2. **Technically correct answer:** Each system boundary defines a deterministic fallback:
+- **ASR Failure:** Returns a typed-input prompt so merchants can type amounts manually without losing turn context.
+- **LLM Failure:** Bypasses probabilistic models and executes the deterministic Python rule parser (`bolkhata.domains.ledger.parser`), logging `provenance={"llm_fallback": "rules_only"}`.
+- **TTS Failure:** Omits audio synthesis while preserving on-screen visual read-back, preventing audio driver crashes from blocking ledger commits.
+- **Database Write Failure:** Catches connection and lock errors (`OperationalError`) and queues payloads in `LocalRetryQueue` preserving their exact SHA-256 `idempotency_key`. When database connectivity resumes, retrying the queue commits transactions safely without duplicate records.
+3. **BolKhata concrete example:** `backend/src/bolkhata/domains/ledger/fallbacks.py`, `tests/integration/test_provider_chaos.py`.
+
+---
+
 ## Topic J — Interview Preparation Checklist
 
 Before walking into a technical interview, ensure you can live-code or explain:
@@ -313,15 +336,19 @@ Before walking into a technical interview, ensure you can live-code or explain:
   - `backend/src/bolkhata/common/logging.py` (Fail-closed PII scrubbing, regex, exception traversal).
   - `backend/src/bolkhata/asr/base.py` (Immutable dataclasses, async generator interfaces).
   - `backend/src/bolkhata/domains/base.py` (`DomainPack` abstraction, provenance, idempotency).
-  - `backend/src/bolkhata/domains/ledger/resolver.py` (Customer resolution, cross-script mapping, gray-zone thresholds).
+  - `backend/src/bolkhata/domains/common/number_words.py` (Number-to-Hindi/English words).
+  - `backend/src/bolkhata/domains/ledger/trust.py` (PendingEntry, voice correction, high-risk threshold).
+  - `backend/src/bolkhata/domains/ledger/fallbacks.py` (Chaos handling, local retry queue).
 - [ ] **Tests to Highlight:**
   - `test_multiple_providers_fail_shutdown_retried_in_reverse_startup_order` (Retry sequence).
   - `test_normalization_boundaries` ($-32768 \rightarrow -1.0$, $+32767 \rightarrow +0.99997$).
   - `test_transcript_redacted_at_all_levels` (PII scrubbing at DEBUG/INFO/WARNING/ERROR).
   - `test_resolve_gray_zone_ambiguity` (Gray zone $[0.65, 0.85)$ returns candidate ambiguity).
-  - `test_undo_last_as_compensating_event` (Append-only compensating transaction).
+  - `test_hard_confirmation_safety_bypass_rejected` (Hard confirmation invariant).
+  - `test_full_scripted_voice_correction_and_undo_flow` (Full 4-turn correction and compensating undo).
+  - `test_db_failure_local_retry_queue_and_recovery` (DB write failure queue and retry).
 - [ ] **Key Architectural Numbers:**
   - 16 kHz Mono Signed 16-bit PCM = 32,000 bytes/sec.
   - Normalization divisor = `32768.0`.
-  - 417 passing unit/integration tests running in ~0.55s.
-  - Strict Mypy type-checking across 48 backend source files.
+  - 513 passing unit/integration tests running in ~0.65s.
+  - Strict Mypy type-checking across 52 backend source files.

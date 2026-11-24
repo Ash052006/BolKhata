@@ -1178,3 +1178,42 @@ The entire Kirana ledger domain operates as a pluggable pack. Domain-agnostic pi
 **Interview angle:**
 *Challenge:* If a user clicks 'undo' on a transaction, why insert an undo event instead of deleting the original row?
 *Defense:* In accounting and financial compliance (including Indian GST and audit standards), physical deletion (`DELETE FROM`) destroys forensic auditability. By recording a compensating event (`compensation_undo`) referencing the original event ID, we maintain an immutable append-only ledger log, allow retrospective balance audits at any historical point in time, and safely handle concurrent client retries without race conditions.
+
+---
+
+### DEC-0031: Trust UX, Voice Correction Patches, and Circuit-Breaker Graceful Degradation
+
+- **Date:** 2026-11-23
+- **Stage:** S4 Trust UX, Correction, and Failure Handling
+- **Status:** Implemented Decision
+- **Related files:** `backend/src/bolkhata/domains/common/number_words.py`, `backend/src/bolkhata/domains/common/confirmation.py`, `backend/src/bolkhata/domains/ledger/trust.py`, `backend/src/bolkhata/domains/ledger/fallbacks.py`, `docs/adr/0005-trust-ux-voice-correction-and-failure-handling.md`
+- **Related ADR:** [ADR 0005: Trust UX, Voice Correction Patches, and Circuit-Breaker Graceful Degradation](adr/0005-trust-ux-voice-correction-and-failure-handling.md)
+
+**Context:**
+Kirana store merchants operate in busy, hands-full physical environments. They cannot continuously monitor a phone screen. Silent voice recognition errors destroy trust instantly. Moreover, when an assistant mishears an entity, merchants naturally speak targeted verbal corrections (*"nahi, teen sau nahi, teen sau pachaas"*) rather than re-speaking full sentences. Finally, edge AI architectures face hardware, cloud, and DB lock failures that require resilient fallbacks.
+
+**Decision:**
+1. **Hard Confirmation Invariant:** No transaction is ever committed to persistent storage without explicit merchant confirmation (`is_confirmed=True`). Confirmation grammar parses positive (`haan`, `sahi hai`, `theek hai`, `likh do`, `yes`, `हाँ`), negative (`nahi`, `galat`, `no`), and cancel (`ruko`, `cancel`, `रद्द करो`) cues. Anything ambiguous resolves to `UNCLEAR` (triggering a verbal re-ask), never defaulting to 'yes'.
+2. **Deterministic Number-to-Words Read-Back:** Read-back templates are generated via pure-Python deterministic grammars (`number_to_hindi_words`, `number_to_english_words`), completely bypassing LLMs to guarantee that amounts are spoken exactly as persisted.
+3. **High-Risk Thresholds:** Transactions with amounts $\ge ₹5,000$, ASR confidence $< 0.80$, ambiguous numbers, or unverified customers trigger strict verbal read-backs with digit-by-digit pronunciation (*"barah hazaar panch sau rupaye (ek do panch shunya shunya)"*).
+4. **Voice Correction Patching:** Uncommitted transactions are maintained in a `PendingEntry` state. Spoken patches (*"nahi teen sau nahi, teen sau pachaas"*, *"Verma ji hai"*, *"kal ka likho"*) update target fields, track modification history, and re-generate read-backs. Rounds are bounded to 3 before falling back to manual edit.
+5. **Circuit-Breaker Fallbacks:**
+   - ASR failure $\to$ typed-input prompt fallback.
+   - LLM failure $\to$ deterministic rules-only parser fallback with notice.
+   - TTS failure $\to$ visual on-screen read-back.
+   - Database failure $\to$ local in-memory retry queue preserving SHA-256 idempotency keys.
+
+**Consequences:**
+Merchants can rely on audio confirmations with mathematical certainty. The system tolerates provider outages without losing user transactions or double-posting.
+
+**Evidence:**
+- 29 unit tests in `tests/unit/test_number_words.py`
+- 51 unit tests in `tests/unit/test_confirmation_grammar.py`
+- 9 unit tests in `tests/unit/test_trust_correction.py`
+- 1 unit test in `tests/unit/test_daily_summary.py`
+- 1 end-to-end integration test in `tests/integration/test_voice_correction_flow.py`
+- 5 integration tests in `tests/integration/test_provider_chaos.py`
+
+**Interview angle:**
+*Challenge:* Why not let the LLM generate the verbal read-back confirmation phrase?
+*Defense:* LLMs are probabilistic text generators. If an LLM is asked to say *"Sharma ji, teen sau pachaas rupaye udhaar"*, it has a small but non-zero probability of hallucinating numbers, omitting customer names, or introducing conversational fluff. In financial accounting, that is unacceptable. By computing the read-back string using deterministic Python number-to-words functions directly from the validated `PendingEntry`, we guarantee 100% exact alignment between what the merchant hears, what is shown on screen, and what is stored in the database.
