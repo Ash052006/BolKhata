@@ -4,7 +4,7 @@
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 > **Last Updated:** Sprint S4 (Trust UX, Correction, and Failure Handling)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `c8f27cf5c873ad3234d7285627e7d6928e46955c`
+> **Latest Commit:** `9b4ad01b22e17ea5cf8a94644da605f6b8b0e77d`
 
 ---
 
@@ -902,6 +902,7 @@ The following table records the verifiable Git commit history on the repository:
 | `e9f73e7` | `feat/s1-provider-foundation` | `feat(s1): wire push-to-talk frontend AudioWorklet and baseline benchmarks` | Implemented React `usePushToTalk` hook, `audio-recorder-worklet.js`, PTT UI with live transcript, flushable playback, `slice-baseline.md`, and `known-issues.md`. S1 vertical slice complete. |
 | `442db48` | `feat/s1-provider-foundation` | `feat(s2): implement spoken number parser, unit normalization, and eval harness` | Deterministic Hindi/Hinglish spoken-number parser, 100+ tricky unit/currency rules with ambiguity signaling, strict/tolerant ASR normalizer, DP WER/CER metrics cross-checked against jiwer, dataset validator, eval CLI, DEC-0029, and Q-D5. Total test suite expanded to 384 tests. |
 | `1457296` | `feat/s1-provider-foundation` | `feat(s3): implement domain pack framework, ledger extraction, and append-only store` | Abstract `DomainPack` contracts in `bolkhata.domains.base`, rules-first hierarchical extraction pipeline, customer resolver with honorific stripping and gray-zone thresholds, SQLite WAL append-only `LedgerEvent` store with SHA-256 idempotency and compensating undos, REST API, ADR 0004, and DEC-0030. Total test suite expanded to 417 tests. |
+| `9b4ad01` | `feat/s1-provider-foundation` | `feat(s4): implement trust UX, voice correction, and failure handling` | Deterministic number-to-words spoken read-back, confirmation grammar with ambiguity re-ask, hard confirmation invariant on save, mutable `PendingEntry` voice patching, high-risk thresholds with digit-by-digit pronunciation, 'aaj ka hisaab' daily digest, and circuit-breaker fallbacks in `fallbacks.py` with `LocalRetryQueue`. Total test suite expanded to 513 tests. |
 
 ---
 
