@@ -4,7 +4,7 @@
 > **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 > **Last Updated:** Sprint S3 (Domain Pack Framework & Ledger Extraction)
 > **Active Branch:** `feat/s1-provider-foundation`
-> **Latest Commit:** `506f5f0b5e76cf8c829498e7309095445e721ff6`
+> **Latest Commit:** `1457296766cb830113c4e5c54e0bcfdf2ca6d585`
 
 ---
 
@@ -865,6 +865,7 @@ The following table records the verifiable Git commit history on the repository:
 | `35e8489` | `feat/s1-provider-foundation` | `docs(s1): sync progress commit SHA and trim protocol whitespace` | Synchronized commit hash in progress journal and cleaned trailing whitespace. |
 | `e9f73e7` | `feat/s1-provider-foundation` | `feat(s1): wire push-to-talk frontend AudioWorklet and baseline benchmarks` | Implemented React `usePushToTalk` hook, `audio-recorder-worklet.js`, PTT UI with live transcript, flushable playback, `slice-baseline.md`, and `known-issues.md`. S1 vertical slice complete. |
 | `442db48` | `feat/s1-provider-foundation` | `feat(s2): implement spoken number parser, unit normalization, and eval harness` | Deterministic Hindi/Hinglish spoken-number parser, 100+ tricky unit/currency rules with ambiguity signaling, strict/tolerant ASR normalizer, DP WER/CER metrics cross-checked against jiwer, dataset validator, eval CLI, DEC-0029, and Q-D5. Total test suite expanded to 384 tests. |
+| `1457296` | `feat/s1-provider-foundation` | `feat(s3): implement domain pack framework, ledger extraction, and append-only store` | Abstract `DomainPack` contracts in `bolkhata.domains.base`, rules-first hierarchical extraction pipeline, customer resolver with honorific stripping and gray-zone thresholds, SQLite WAL append-only `LedgerEvent` store with SHA-256 idempotency and compensating undos, REST API, ADR 0004, and DEC-0030. Total test suite expanded to 417 tests. |
 
 ---
 
