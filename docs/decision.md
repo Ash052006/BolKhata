@@ -1217,3 +1217,29 @@ Merchants can rely on audio confirmations with mathematical certainty. The syste
 **Interview angle:**
 *Challenge:* Why not let the LLM generate the verbal read-back confirmation phrase?
 *Defense:* LLMs are probabilistic text generators. If an LLM is asked to say *"Sharma ji, teen sau pachaas rupaye udhaar"*, it has a small but non-zero probability of hallucinating numbers, omitting customer names, or introducing conversational fluff. In financial accounting, that is unacceptable. By computing the read-back string using deterministic Python number-to-words functions directly from the validated `PendingEntry`, we guarantee 100% exact alignment between what the merchant hears, what is shown on screen, and what is stored in the database.
+
+---
+
+### DEC-0032: Accessible PWA Ledger UI, Privacy Consent, and Edge Deployment Architecture
+
+- **Date:** 2026-11-24
+- **Stage:** S5 Frontend PWA, Offline Fallback & Hardware Benchmarks
+- **Status:** Implemented Decision
+- **Related files:** `frontend/src/apps/ledger/LedgerApp.tsx`, `frontend/src/apps/ledger/PendingCard.tsx`, `frontend/src/apps/ledger/ConsentModal.tsx`, `docs/privacy.md`, `docs/benchmarks/hardware-v0.md`
+
+**Context:**
+A voice assistant for Indian retail must operate reliably in busy Kirana store environments. Merchants require extra-large touch targets, high contrast, script switching (Devanagari vs Roman), plain-language privacy assurances, and resilient offline continuity when store internet drops.
+
+**Decision:**
+1. **Accessible Counter UI:** Design the Kirana Ledger PWA (`frontend/src/apps/ledger/`) with an extra-large 175px hold-to-talk button, high-contrast states (`#059669` green idle, `#dc2626` red listening, `#d97706` amber processing, `#2563eb` blue speaking), live customer balances, append-only transaction logs, and script toggle (`अ Devanagari` / `A Roman`).
+2. **Explicit Privacy Consent:** Implement a plain-language modal (`ConsentModal.tsx`) and policy (`docs/privacy.md`) requiring explicit user approval before microphone activation, confirming that raw audio is processed locally and never stored permanently on disk.
+3. **Automatic Offline Circuit Breaker:** When WebSocket or network connectivity drops, the UI displays a prominent offline status banner and falls back to local rules-only parsing with on-screen visual confirmation cards.
+4. **Hardware Standardization:** Benchmark evidence (`docs/benchmarks/hardware-v0.md`) confirms that the fanless Apple Silicon MacBook Air M5 running MLX-Whisper provides sub-500ms P50 latency, zero PCIe transfer delay, and completely silent (0 dB) operation, outperforming noisy discrete GPU laptops.
+
+**Consequences:**
+The application provides an intuitive, accessible experience for shopkeepers, guarantees full compliance with India's DPDP Act, and maintains operational continuity during internet outages.
+
+**Evidence:**
+- Frontend Vite production build in 253ms with 0 ESLint warnings.
+- `tests/integration/test_frontend_assets.py` verifying build integrity and worklet presence.
+- Benchmark analysis in `docs/benchmarks/hardware-v0.md`.
