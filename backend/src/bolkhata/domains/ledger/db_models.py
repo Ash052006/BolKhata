@@ -33,6 +33,7 @@ class Customer(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     normalized_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    do_not_remind: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utc_now, nullable=False
     )
@@ -93,3 +94,21 @@ class LedgerEvent(Base):
 
 # Composite indexes for high-speed balance and timeline queries
 Index("ix_ledger_events_cust_created", LedgerEvent.customer_id, LedgerEvent.created_at)
+
+
+class ReminderAudit(Base):
+    """
+    Privacy-compliant audit log of drafted WhatsApp reminders.
+    Stores only metadata (timestamp, tone, customer_id). Never stores message text.
+    """
+
+    __tablename__ = "reminder_audits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    customer_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("customers.id"), nullable=False, index=True
+    )
+    tone: Mapped[str] = mapped_column(String(32), default="neutral", nullable=False)
+    drafted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, nullable=False, index=True
+    )

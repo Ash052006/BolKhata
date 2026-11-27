@@ -85,6 +85,22 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
             date=date_val,
         )
 
+    # Do Not Remind Opt-Out Intent
+    if re.search(
+        r"\b(?:isko\s+mat\s+bhejo|remind\s+mat\s+karna|message\s+mat\s+bhejna|no\s+reminder)\b",
+        orig_lower,
+    ):
+        customer = _extract_customer_name(cleaned_text)
+        return LedgerIntent(
+            name="set_do_not_remind",
+            customer=customer,
+            confidence=0.95,
+            provenance={"intent": "rules", "customer": "rules"}
+            if customer
+            else {"intent": "rules"},
+            date=date_val,
+        )
+
     # 2. Query Intents
     if re.search(r"\b(?:(?:aaj\s+)?kitna\s+udhaar|aaj\s+ka\s+udhaar|kitna\s+diya)\b", orig_lower):
         return LedgerIntent(
@@ -111,6 +127,30 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
     ):
         return LedgerIntent(
             name="query_top_debtors",
+            confidence=0.95,
+            provenance={"intent": "rules"},
+            date=date_val,
+        )
+
+    if re.search(
+        r"\b(?:kitne\s+din\s+se\s+baaki|kitne\s+din\s+purana|kab\s+se\s+baaki)\b", orig_lower
+    ):
+        customer = _extract_customer_name(cleaned_text)
+        return LedgerIntent(
+            name="query_debt_age",
+            customer=customer,
+            confidence=0.95 if customer else 0.8,
+            provenance={"intent": "rules", "customer": "rules"}
+            if customer
+            else {"intent": "rules"},
+            date=date_val,
+        )
+
+    if re.search(
+        r"\b(?:30\s+din\s+se\s+zyada|purana\s+udhaar|overdue|purana\s+baaki)\b", orig_lower
+    ):
+        return LedgerIntent(
+            name="query_overdue_list",
             confidence=0.95,
             provenance={"intent": "rules"},
             date=date_val,

@@ -115,6 +115,9 @@ async def extract_ledger_intent(
         "query_today_collection",
         "query_top_debtors",
         "query_last_payment",
+        "query_debt_age",
+        "query_overdue_list",
+        "set_do_not_remind",
         "undo_last",
     ):
         provenance["intent"] = "llm"

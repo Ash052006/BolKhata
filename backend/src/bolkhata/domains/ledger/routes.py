@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+from dataclasses import asdict
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -22,7 +23,13 @@ from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bolkhata.common.db import get_db_session
+from bolkhata.domains.ledger.ageing import (
+    get_all_customers_ageing,
+    query_customer_debt_age,
+    query_overdue_customers,
+)
 from bolkhata.domains.ledger.db_models import Customer, LedgerEvent
+from bolkhata.domains.ledger.explainability import get_entry_explanation
 from bolkhata.domains.ledger.models import LedgerIntent
 from bolkhata.domains.ledger.pack import LedgerDomainPack
 from bolkhata.domains.ledger.parser import parse_ledger_rules
@@ -34,7 +41,12 @@ from bolkhata.domains.ledger.queries import (
     query_today_udhaar,
     query_top_debtors,
 )
-from bolkhata.domains.ledger.resolver import CustomerRecord, normalize_customer_name
+from bolkhata.domains.ledger.reminders import draft_customer_reminder
+from bolkhata.domains.ledger.resolver import (
+    CustomerRecord,
+    CustomerResolver,
+    normalize_customer_name,
+)
 
 router = APIRouter(prefix="/api/v1/ledger", tags=["ledger"])
 
@@ -56,6 +68,12 @@ class LedgerQueryRequest(BaseModel):
     quiet_mode: bool = Field(
         default=False, description="Whether to suppress spoken audio for privacy"
     )
+
+
+class ReminderDraftRequest(BaseModel):
+    tone: str = Field(default="neutral", description="Reminder tone: gentle, neutral, or firm")
+    language: str = Field(default="hi", description="Message language: hi or en")
+    cooldown_days: int = Field(default=3, description="Cooldown days for repeat reminder warning")
 
 
 class UtteranceResponse(BaseModel):
@@ -409,11 +427,157 @@ async def execute_voice_query(
             "last payment", ""
         ).strip()
         return await query_last_payment(session, target_cust, quiet_mode=payload.quiet_mode)
+    elif intent_name == "query_debt_age":
+        target_cust = (rule_intent.customer if rule_intent else None) or payload.text
+        return await query_customer_debt_age(session, target_cust, quiet_mode=payload.quiet_mode)
+    elif intent_name == "query_overdue_list":
+        return await query_overdue_customers(session, min_days=30, quiet_mode=payload.quiet_mode)
+    elif intent_name == "set_do_not_remind":
+        target_name = (rule_intent.customer if rule_intent else None) or payload.text
+        all_cust_q = await session.execute(select(Customer))
+        db_customers = all_cust_q.scalars().all()
+        records = [CustomerRecord(id=c.id, name=c.name, phone=c.phone) for c in db_customers]
+        resolver = CustomerResolver(records)
+        res = await resolver.resolve(target_name)
+        if res.is_resolved and res.resolved_id:
+            target_c = next(c for c in db_customers if c.id == res.resolved_id)
+            target_c.do_not_remind = True
+            await session.commit()
+            return {
+                "query_type": "set_do_not_remind",
+                "status": "success",
+                "customer_name": target_c.name,
+                "display_text": f"{target_c.name} ke liye payment reminder band kar diya gaya.",
+                "spoken_text": None
+                if payload.quiet_mode
+                else f"Theek hai, {target_c.name} ko aage se koi reminder nahi jayega.",
+                "quiet_mode": payload.quiet_mode,
+            }
+        return {
+            "query_type": "set_do_not_remind",
+            "status": "not_found",
+            "display_text": f"Customer '{target_name}' nahi mila.",
+            "spoken_text": None
+            if payload.quiet_mode
+            else f"{target_name} naam ka customer nahi mila.",
+            "quiet_mode": payload.quiet_mode,
+        }
     else:
         target_cust = (rule_intent.customer if rule_intent else None) or payload.text.replace(
             "balance", ""
         ).strip()
         return await query_customer_balance(session, target_cust, quiet_mode=payload.quiet_mode)
+
+
+@router.get("/ageing")
+async def get_ledger_ageing_report(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> list[dict[str, Any]]:
+    """Return FIFO debt ageing report across all customers."""
+    ageing_list = await get_all_customers_ageing(session)
+    return [
+        {
+            "customer_id": a.customer_id,
+            "customer_name": a.customer_name,
+            "total_balance": a.total_balance,
+            "bucket_0_7": a.bucket_0_7,
+            "bucket_8_30": a.bucket_8_30,
+            "bucket_31_60": a.bucket_31_60,
+            "bucket_60_plus": a.bucket_60_plus,
+            "oldest_due_days": a.oldest_due_days,
+        }
+        for a in ageing_list
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Feature F4: WhatsApp Reminder Drafts & Guardrails
+# ---------------------------------------------------------------------------
+
+
+@router.post("/customers/{customer_id}/reminder")
+async def create_whatsapp_reminder(
+    customer_id: str,
+    payload: ReminderDraftRequest,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict[str, Any]:
+    """
+    Draft a pre-filled WhatsApp click-to-chat reminder link.
+    The app generates a draft only and never sends messages automatically.
+    """
+    try:
+        return await draft_customer_reminder(
+            session=session,
+            customer_id=customer_id,
+            tone=payload.tone,
+            language=payload.language,
+            cooldown_days=payload.cooldown_days,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+
+@router.post("/customers/{customer_id}/do-not-remind")
+async def toggle_do_not_remind(
+    customer_id: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    enabled: Annotated[bool, Query()] = True,
+) -> dict[str, Any]:
+    """Toggle the per-customer 'do_not_remind' opt-out flag."""
+    cust_q = await session.execute(select(Customer).where(Customer.id == customer_id))
+    cust = cust_q.scalar_one_or_none()
+    if cust is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Customer with ID '{customer_id}' not found.",
+        )
+    cust.do_not_remind = enabled
+    await session.commit()
+    return {
+        "customer_id": customer_id,
+        "customer_name": cust.name,
+        "do_not_remind": cust.do_not_remind,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Feature F5: Explainability Panel & Redacted Diagnostics
+# ---------------------------------------------------------------------------
+
+
+@router.get("/entries/{entry_id}/explain")
+async def explain_ledger_entry(
+    entry_id: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict[str, Any]:
+    """Retrieve stage-by-stage explainability breakdown for a ledger event."""
+    try:
+        exp = await get_entry_explanation(session, entry_id)
+        return asdict(exp)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+
+
+@router.get("/entries/{entry_id}/explain/redacted")
+async def export_redacted_explanation(
+    entry_id: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> dict[str, Any]:
+    """Export PII-redacted JSON diagnostics for bug tracking and review."""
+    try:
+        exp = await get_entry_explanation(session, entry_id)
+        return exp.to_redacted_dict()
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
 
 
 # ---------------------------------------------------------------------------

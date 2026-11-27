@@ -1,0 +1,8 @@
+Participant Code,Session ID,Date (YYYY-MM-DD),Noise Condition,Device Model,Task ID,Mode (Voice/Manual),Duration (s),Corrections Needed,Error Occurred,Failure Code,Merchant Quote
+P01,SESS-01,2026-11-20,Moderate Counter Fan,MacBook Air M5,TASK-01,Voice,2.8,0,No,,Bahut aasan hai
+P01,SESS-01,2026-11-20,Moderate Counter Fan,MacBook Air M5,TASK-01,Manual,11.4,0,No,,Diary me dhundhna pada
+P01,SESS-01,2026-11-20,Moderate Counter Fan,MacBook Air M5,TASK-02,Voice,2.3,0,No,,
+P01,SESS-01,2026-11-20,Moderate Counter Fan,MacBook Air M5,TASK-02,Manual,9.6,0,No,,
+P02,SESS-02,2026-11-21,Loud Street Traffic,MacBook Air M5,TASK-01,Voice,3.1,0,No,,
+P02,SESS-02,2026-11-21,Loud Street Traffic,MacBook Air M5,TASK-01,Manual,14.2,1,Yes,Misspelled name,
+P02,SESS-02,2026-11-21,Loud Street Traffic,MacBook Air M5,TASK-08,Voice,4.6,1,No,Voice correction,Bol kar theek ho gaya

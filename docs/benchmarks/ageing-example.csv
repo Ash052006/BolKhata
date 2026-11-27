@@ -1,0 +1,7 @@
+Event Date,Event Type,Amount (INR),FIFO Allocation Note,Remaining Debt (INR),Ageing Bucket
+2026-08-01,add_credit_sale,500.00,Fully paid by 2026-10-10 payment,0.00,Cleared
+2026-09-15,add_credit_sale,300.00,Partially paid (100 INR by 2026-10-10 payment),200.00,60+ days
+2026-10-10,payment_received,600.00,Applied: 500 to Aug 1 and 100 to Sep 15,N/A,Payment
+2026-11-01,add_credit_sale,400.00,Unpaid,400.00,8-30 days
+2026-11-25,add_credit_sale,150.00,Unpaid,150.00,0-7 days
+SUMMARY: Total Outstanding Balance = 750.00 INR (0-7d: 150.00 | 8-30d: 400.00 | 31-60d: 0.00 | 60+d: 200.00)

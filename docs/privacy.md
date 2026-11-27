@@ -59,6 +59,14 @@ To prevent customer data leakage into developer tools or log aggregators:
 
 ---
 
-## 5. Contact & Questions
+## 5. WhatsApp Payment Reminders & Drafting Aid Disclaimer (Feature F4)
+
+- **Merchant Responsibility & Drafting Aid**: The WhatsApp reminder feature is strictly an interactive drafting aid. BolKhata **never** sends messages or communicates with customers automatically. All generated reminder links (`https://wa.me/...`) require the shopkeeper to review the pre-filled text and manually press send inside their own WhatsApp application. The merchant is solely responsible for ensuring communication complies with local norms and regulations.
+- **Privacy-First Audit Logging**: When a reminder is drafted, BolKhata records only minimal audit metadata (`timestamp`, `customer_id`, `tone`) in `reminder_audits`. The message text itself is **never stored** in the database or logs.
+- **Opt-Out Respect (`do_not_remind`)**: If a customer requests not to receive reminders (*"isko mat bhejo"*), the `do_not_remind` flag is set on their record, permanently preventing future reminder generation for that customer.
+
+---
+
+## 6. Contact & Questions
 
 For privacy audits, compliance questions, or technical security reports, refer to `docs/interview-guide.md` or contact the repository maintainers.
