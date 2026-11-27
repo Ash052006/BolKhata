@@ -1,7 +1,7 @@
 # BolKhata (बोलखाता) — Technical Executive Summary
 
-> **Track:** Scaler x Wispr Flow Hackathon — Small Business / Everyday Access  
-> **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)  
+> **Track:** Scaler x Wispr Flow Hackathon — Small Business / Everyday Access
+> **Repository:** [https://github.com/Ash052006/BolKhata](https://github.com/Ash052006/BolKhata)
 > **Platform:** macOS Apple Silicon (Metal/MLX) & Linux Edge Runtime
 
 ---

@@ -48,9 +48,26 @@ HONORIFICS = {
     "बाबूजी",
     "sir",
     "madam",
+    # Bengali honorifics
+    "babu",
+    "বাবু",
+    "da",
+    "dada",
+    "দা",
+    "দাদা",
+    "didi",
+    "দিদি",
+    "kaku",
+    "কাকু",
+    "kakima",
+    "কাকিমা",
+    "mashima",
+    "মাসিমা",
+    "dadu",
+    "দাদু",
 }
 
-# Devanagari to Roman common phonetic mapping for cross-script matching
+# Devanagari and Bengali to Roman common phonetic mapping for cross-script matching
 DEVANAGARI_ROMAN_APPROX = {
     "रमेश": "ramesh",
     "सुरेश": "suresh",
@@ -63,6 +80,20 @@ DEVANAGARI_ROMAN_APPROX = {
     "पांडे": "pandey",
     "सिंह": "singh",
     "चौधरी": "chaudhary",
+    # Bengali common names/surnames
+    "দাস": "das",
+    "ঘোষ": "ghosh",
+    "ব্যানার্জী": "banerjee",
+    "চ্যাটার্জী": "chatterjee",
+    "মুখার্জী": "mukherjee",
+    "দত্ত": "dutta",
+    "সেন": "sen",
+    "রায়": "roy",
+    "মণ্ডল": "mondal",
+    "মজুমদার": "majumdar",
+    "সরকার": "sarkar",
+    "বিশ্বাস": "biswas",
+    "সাহা": "saha",
     "अग्रवाल": "agarwal",
 }
 

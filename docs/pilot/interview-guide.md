@@ -1,7 +1,7 @@
 # BolKhata Field Pilot: Shopkeeper Interview Guide
 
-> **Target:** 3 to 5 Kirana Shopkeepers in active retail bazaars  
-> **Structure:** 8 Focused Open Questions  
+> **Target:** 3 to 5 Kirana Shopkeepers in active retail bazaars
+> **Structure:** 8 Focused Open Questions
 > **Objective:** Uncover authentic pain points, dialect preferences, and acoustic challenges for Round 1 Impact documentation.
 
 ---
@@ -9,7 +9,7 @@
 ## The 8 Core Interview Questions
 
 ### 1. Current Workflow & Habits (मौजूदा बही-खाता तरीका)
-> *"आप अभी दिनभर का उधार और नकद हिसाब कैसे रखते हैं? क्या आप कागज़ की डायरी (बही) इस्तेमाल करते हैं, या कोई मोबाइल ऐप (जैसे खताबुक/ओकेक्रेडिट)?"*  
+> *"आप अभी दिनभर का उधार और नकद हिसाब कैसे रखते हैं? क्या आप कागज़ की डायरी (बही) इस्तेमाल करते हैं, या कोई मोबाइल ऐप (जैसे खताबुक/ओकेक्रेडिट)?"*
 > *(Follow-up: डायरी में तुरंत लिखते हैं या दुकान बंद करते समय शाम को याद करके?)*
 
 ### 2. Pain Points & Lost Money (उधार भूलने या गलतियों का अनुभव)

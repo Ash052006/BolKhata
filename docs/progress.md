@@ -884,12 +884,43 @@ Interview Topics:
 - **Deeper Follow-Up:** What are the exact mathematical normalization bounds implemented in `pcm_to_float32`?
 - **What to show in code:** [backend/src/bolkhata/asr/common.py](../backend/src/bolkhata/asr/common.py) and [tests/unit/test_asr_common.py](../tests/unit/test_asr_common.py).
 
+#### Q7.3: How does BolKhata prevent Indic vowel signs and nuktas from being stripped during string sanitization?
+- **What the interviewer is testing:** Unicode knowledge, Indic orthography, tokenization bugs, and character classification.
+- **Suggested Answer:**
+  > "In Indic scripts like Devanagari and Bengali, letters combine base consonants with dependent vowel signs (matras, e.g. `ি` U+09BF, `ো` U+09CB) and diacritic marks (nuktas `়` U+09BC, viramas, chandrabindus).
+  > Naive token cleaners often use regexes like `re.sub(r'^[^\w]+|[^\w]+$', '', token)` to strip trailing punctuation. In Python's regex engine, nonspacing marks (`Mn`) or spacing combining marks (`Mc`) at token boundaries can be stripped if not handled carefully, turning `দেড়` (1.5) into `দেড` or `কোটি` (crore) into `কোট`.
+  > BolKhata solved this by:
+  > 1. Restricting punctuation stripping to an explicit character set of sentence terminators and punctuation: `token.strip(" \t\n\r,.;:!?()[]\"'|।-–—")`.
+  > 2. Applying canonical Unicode NFC normalization (`unicodedata.normalize('NFC', text)`) prior to token matching, ensuring precomposed forms remain intact."
+- **What to show in code:** [backend/src/bolkhata/domains/common/bengali_numbers.py](../backend/src/bolkhata/domains/common/bengali_numbers.py) and [tests/unit/test_bengali_numbers.py](../tests/unit/test_bengali_numbers.py).
+
+#### Q7.4: How does BolKhata prevent customer surnames like 'Das' from colliding with spoken numbers ('das' = 10)?
+- **What the interviewer is testing:** Entity extraction boundary resolution, phonetics, and financial ambiguity mitigation.
+- **Suggested Answer:**
+  > "In Hindi, `das` is the spoken number 10. In Bengali and Eastern India, `Das` is one of the most common customer surnames (*'Das babu ke aadhai sho taka baki'*).
+  > If a parser extracts numeric tokens naively across the entire raw utterance, `'Das'` is stolen as the transaction amount (₹10), causing severe misrecognition of the true amount (`'aadhai sho'` = ₹250).
+  > BolKhata prevents this collision through **Boundary-Aware Entity Masking**:
+  > 1. Customer name extraction executes first, identifying candidate customer spans and honorific postposition boundaries (e.g., `'Das babu ke'`).
+  > 2. The extracted customer prefix is masked out of the amount search buffer before number parsing runs.
+  > 3. If multiple multilingual number parsers match candidate tokens, BolKhata prioritizes whichever extractor captured the longest contiguous token span (e.g. Bengali `'paanch sho'` of 10 chars vs Hindi `'paanch'` of 6 chars)."
+- **What to show in code:** [backend/src/bolkhata/domains/ledger/parser.py](../backend/src/bolkhata/domains/ledger/parser.py) and [tests/unit/test_bengali_numbers.py](../tests/unit/test_bengali_numbers.py).
+
+#### Q7.5: How does the append-only event store guarantee mathematical convergence during offline sync?
+- **What the interviewer is testing:** Distributed systems, offline sync, CRDTs, and financial invariants.
+- **Suggested Answer:**
+  > "In traditional relational designs, synchronizing offline updates leads to state overwrites (device A updates balance to ₹400 while server has ₹500).
+  > BolKhata uses an **Append-Only Event Synchronization Engine (ADR 0008)** where balances are pure mathematical projections over an immutable set of uncompensated events:
+  > $$B(c) = \sum_{e \in E_c, \neg e.\text{is\_compensated}} \text{signed\_amount}(e)$$
+  > Because arithmetic addition over signed reals is associative and commutative ($A + B = B + A$), events recorded in arbitrary order or across network partitions converge to the exact same customer balance regardless of delivery sequence.
+  > Duplicate deliveries are rendered 100% idempotent via unique `idempotency_key` constraints, returning `ALREADY_SYNCED` without double-crediting."
+- **What to show in code:** [backend/src/bolkhata/domains/ledger/sync.py](../backend/src/bolkhata/domains/ledger/sync.py), [docs/adr/0008-local-first-offline-sync-crdt.md](../docs/adr/0008-local-first-offline-sync-crdt.md), and [tests/unit/test_offline_sync.py](../tests/unit/test_offline_sync.py).
+
 ---
 
 ## Section G — Current Status & Next Steps
 
 ### Active Component Status
-*Verified as of Sprint S2 Hinglish Normalization & Evaluation Harness*
+*Verified as of Full Feature Complete Release (Sprints S0 to S6, Must-Haves, Should-Haves, Could-Haves)*
 
 - **S0 Production Foundation:** **Completed** (Monorepo, FastAPI, async DB, logging redaction, Alembic, Docker, CI).
 - **S0 Tooling & Secret Remediation:** **Completed** (Reproducible pre-commit, scanner allowlists, clean linting).
@@ -903,14 +934,20 @@ Interview Topics:
 - **S2 Spoken-Number Parser & Evaluation Harness:** **Completed (Sprint S2)** (Deterministic spoken-number parser across 0–100, multipliers `sau`/`hazaar`/`lakh`/`crore`, colloquial fractions `dhai`/`derh`/`sawa`/`sadhe`/`paune`, unit & currency normalization with ambiguity detection, ASR text normalizer in `strict` and `tolerant` modes, pure-Python DP WER/CER cross-validated against `jiwer`, evaluation dataset tooling, and benchmark runner CLI).
 - **S3 DomainPack & Append-Only Ledger:** **Completed (Sprint S3)** (Abstract `DomainPack` contracts in `bolkhata.domains.base`, rules-first hierarchical extraction in `pipeline.py`, customer resolver in `resolver.py` with honorifics and gray-zone thresholds, append-only SQLite WAL / PostgreSQL `LedgerEvent` store with SHA-256 idempotency and compensating undo reversals, REST endpoints in `routes.py`, and `docs/benchmarks/extraction-v0.md`).
 - **S4 Read-Back, Confirmation & Correction Loop:** **Completed (Sprint S4)** (Deterministic spoken number-to-words in `number_words.py`, multi-lingual confirmation grammar in `confirmation.py` with ambiguity re-ask, hard confirmation invariant in `trust.py`, mutable `PendingEntry` voice correction patching, high-risk threshold read-backs with digit-by-digit pronunciation, 'aaj ka hisaab' daily digest, and circuit-breaker fallbacks in `fallbacks.py` with `LocalRetryQueue`).
-- **Real Speech Inference & Evaluation:** *Not Implemented (Planned next — requires hardware smoke test on Apple Silicon Mac)*.
-- **S5 Frontend PWA & Hardware Benchmarking:** **Completed (Sprint S5)** (React PWA at `frontend/src/apps/ledger` with 175px hold-to-talk button, high-contrast pending card, Devanagari/Roman script toggle, DPDP Act privacy consent modal, circuit-breaker offline banner, Apple Silicon M5 hardware benchmarking in `docs/benchmarks/hardware-v0.md`, and Vite production bundle tests).
+- **Real Speech Inference & Evaluation:** *Not Implemented (Awaiting physical recordings per zero-fabrication policy)*.
+- **S5 Frontend PWA & Hardware Benchmarking:** **Completed (Sprint S5)** (React PWA at `frontend/src/apps/ledger` with 175px hold-to-talk button, high-contrast pending card, Devanagari/Roman/Bengali script toggle, DPDP Act privacy consent modal, circuit-breaker offline banner, Apple Silicon M5 hardware benchmarking in `docs/benchmarks/hardware-v0.md`, and Vite production bundle tests).
 - **S6 Evidence & Release Freeze:** **Completed (Sprint S6)** (Comprehensive README with Mermaid architecture and turn sequence diagrams, quick start, master benchmark catalog in `docs/benchmarks/index.md`, third-party licence registry in `docs/licences.md`, architectural shortcuts registry in `docs/future-work.md`, 90-second demo script in `docs/demo-script.md`, deterministic reset script in `scripts/demo_reset.sh`, and v0.1.0 release freeze).
-- **Feature Tiers (Part 3):** **All Must-Haves Completed & Verified** (F1 Vocabulary Biasing, F2 Spoken Balance Queries, F6 Data Ownership & Export, F7 Pilot Instrumentation).
+- **Feature Must-Haves (F1, F2, F6, F7):** **Completed & Verified** (F1 Vocabulary Biasing, F2 Spoken Balance Queries, F6 Data Ownership & DPDP Erasure, F7 Pilot Instrumentation).
+- **Feature Should-Haves (F3, F4, F5):** **Completed & Verified** (F3 FIFO Debt Ageing & Buckets, F4 WhatsApp Reminders & Guardrails, F5 Explainability Panel & PII Redaction).
+- **Feature Could-Haves (F8, F9, F10):** **Completed & Verified**
+  - **F8 (Second Language Support):** `NumberParser` protocol, `BengaliNumberParser` (0-100, multipliers, colloquial fractions `derh`/`aadhai`/`shoya`/`shaadhe`/`poune`, currency `taka`/`poisha`, units `keji`/`gram`/`litre`/`darjan`/`hali`, Bengali confirmation words `hyan`/`thik achhe`/`na`/`bhul`/`thamo`, customer honorifics `babu`/`da`/`dada`/`didi`, 171 automated tests).
+  - **F9 (Local-First Sync):** ADR 0008, commutative append-only event convergence, batch sync endpoint `POST /api/v1/ledger/sync`, idempotency deduplication (`ALREADY_SYNCED`), offline compensation barrier, and network partition tests.
+  - **F10 (Open Spoken-Amount Benchmark):** Dataset card (`docs/benchmarks/spoken-amount-dataset-card.md`), public release consent form (`docs/pilot/public-release-consent.md`), licensing analysis (`docs/benchmarks/spoken-amount-licensing.md`), zero-PII sanitization script (`scripts/package_benchmark.py`), and evaluation scoring script (`scripts/eval_amount_benchmark.py`).
+- **Rounds R1 & R3 Assets:** **Completed** (R1 field interview protocol, consent script, submission draft; R3 3-hour finale drill checklist, pitch deck speaker notes, technical one-pager).
 
 ### Next Implementation Sequence
-1. **Round 2 Adaptation (R2):** Monorepo, provider foundation, and domain pack framework frozen for the 48-hour Round 2 problem statement reveal.
-2. **Release Tag:** Repository tagged `v0.1.0` and ready for submission.
+1. **Round 2 Adaptation (R2):** All foundation, domain pack, and feature layers completely built, tested, and frozen. Awaiting the hackathon Round 2 problem statement reveal.
+2. **Finale Deployment:** Fully verified for Apple Silicon Mac local execution with zero internet dependencies.
 
 ---
 
@@ -920,11 +957,11 @@ Interview Topics:
 
 | Metric / Verification Gate | Latest Verified Result | What It Proves | Known Limitations |
 |---|---|---|---|
-| **Backend Unit & Integration Tests** | `556 passed in 1.80s` | All 556 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, full WebSocket turn integration, spoken numbers parser, units & currency normalization, eval metrics & jiwer cross-validation, ASR normalizer, eval runner, dummy task pack, ledger rules parser, customer resolver, extraction pipeline, ledger REST API, number-to-words generator, confirmation grammar, trust manager, voice correction patching, daily summary, scripted voice correction dialogue flow, provider chaos resilience, frontend production asset packaging, F1 vocabulary biasing, F2 balance queries, F3 debt ageing & FIFO calculations, F4 WhatsApp reminders & guardrails, F5 explainability panel & PII redaction, F6 data ownership & exports, and F7 pilot instrumentation. | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
+| **Backend Unit & Integration Tests** | `737 passed in 2.17s` | All 737 tests pass across DB health, Alembic, logging redaction, provider contracts, registry lifecycles, PCM audio conversion, honest confidence contracts, Apple Silicon MLX ASR settings, MLX-Whisper provider, WebSocket protocol schemas, 4-state session transitions, full WebSocket turn integration, spoken numbers parser, units & currency normalization, eval metrics & jiwer cross-validation, ASR normalizer, eval runner, dummy task pack, ledger rules parser, customer resolver, extraction pipeline, ledger REST API, number-to-words generator, confirmation grammar, trust manager, voice correction patching, daily summary, scripted voice correction dialogue flow, provider chaos resilience, frontend production asset packaging, F1 vocabulary biasing, F2 balance queries, F3 debt ageing & FIFO calculations, F4 WhatsApp reminders & guardrails, F5 explainability panel & PII redaction, F6 data ownership & exports, F7 pilot instrumentation, F8 Bengali spoken numbers & multilingual parser protocol (171 tests), F9 local-first sync & convergence (4 tests), and F10 benchmark packaging & evaluation (5 tests). | Tests use deterministic mocks and injectable runtime boundaries; real neural inference models are tested in separate evaluation suites. |
 | **Ruff Lint Check** | `All checks passed!` | Zero PEP 8, import, flake8, or syntax violations across `src/` and `tests/`. | Verifies code style; does not test runtime logic. |
 | **Ruff Format Check** | `All files correctly formatted` | Repository formatting is 100% compliant with standard rules. | Whitespace/formatting only. |
-| **Mypy Static Type Analysis** | `Success: no issues found in 59 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
-| **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 246ms` | React TypeScript compilation and production bundle build succeed with zero errors. AudioWorklet capture and flushable playback queue are fully compiled. | Push-to-talk loop runs against backend WebSocket. |
+| **Mypy Static Type Analysis** | `Success: no issues found in 63 source files` | Full static type safety across `bolkhata` package under strict type annotations. | Does not type-check dynamically generated runtime values. |
+| **Frontend Lint & Build** | `ESLint clean (0 warnings), Vite built in 268ms` | React TypeScript compilation and production bundle build succeed with zero errors. AudioWorklet capture, flushable playback queue, explainability drawers, debt ageing badges, and WhatsApp click-to-chat links are fully compiled. | Push-to-talk loop runs against backend WebSocket. |
 | **Pre-Commit Checks (Two Passes)** | `Passed (all 11 hooks passed twice)` | Formatting, JSON/TOML validation, large file checks, and branch protection are completely reproducible and idempotent. | Verifies static file integrity. |
 | **Secret Scanning (`detect-secrets`)** | `0 secrets detected ("results": {})` | No API keys, passwords, high-entropy tokens, or credentials exist in tracked files. | Relies on known regex patterns and entropy thresholds. |
 | **Git Diff Cleanliness** | `git diff --check clean` | Zero whitespace errors or trailing carriage returns. | Formatting check only. |

@@ -1,6 +1,6 @@
 # BolKhata: 5-Minute Finale Pitch & Investor Defense
 
-> **Format:** 5-Minute Spoken Presentation + Judge Q&A  
+> **Format:** 5-Minute Spoken Presentation + Judge Q&A
 > **Speaker Notes:** Designed for Scaler x Wispr Flow Finale Jury
 
 ---
@@ -31,13 +31,13 @@
 *"Anyone can call an LLM API. But building a voice tool that merchants can trust with their cash flow requires solving three hard problems:*
 
 1. **Acoustic Reality & Voice Correction:** What if the app mishears in a loud market? Watch this:
-   > **[CUE DEMO]** *"Verma ji ko teen sau udhaar."*  
-   > The app speaks: *"Verma ji, teen sau rupaye udhaar."*  
-   > Merchant says: *"Nahi, teen sau nahi, teen sau pachaas."*  
+   > **[CUE DEMO]** *"Verma ji ko teen sau udhaar."*
+   > The app speaks: *"Verma ji, teen sau rupaye udhaar."*
+   > Merchant says: *"Nahi, teen sau nahi, teen sau pachaas."*
    Our trust manager applies a delta patch to the pending entry in real-time. No typing required.
 
 2. **Network Resilience:** Mobile networks drop in crowded bazaars.
-   > **[CUE DEMO: Disconnect Wi-Fi]**  
+   > **[CUE DEMO: Disconnect Wi-Fi]**
    BolKhata's circuit-breaker detects network severance instantly, switches to local MLX-Whisper and pure-Python rules, and saves the transaction to local SQLite WAL without dropping a single frame.
 
 3. **Data Ownership & Privacy:** We comply with India's DPDP Act 2023. Audio is processed ephemerally in GPU memory and purged immediately. A merchant can export their full ledger to CSV or wipe customer PII with one tap."*

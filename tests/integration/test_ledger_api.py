@@ -139,3 +139,37 @@ async def test_undo_last_as_compensating_event(client: AsyncClient) -> None:
     assert res_audit.status_code == 200
     audit = res_audit.json()
     assert audit["balance"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_offline_sync_api_endpoint(client: AsyncClient) -> None:
+    """Test POST /api/v1/ledger/sync endpoint end-to-end."""
+    batch_payload = {
+        "client_id": "pwa_terminal_01",
+        "events": [
+            {
+                "idempotency_key": "sync_api_test_01",
+                "event_type": "add_credit_sale",
+                "customer_name": "Rupa Devi",
+                "amount": 420.0,
+                "items": ["dal", "oil"],
+                "client_timestamp": "2026-11-27T10:00:00Z",
+                "logical_clock": 1,
+            }
+        ],
+    }
+
+    res = await client.post("/api/v1/ledger/sync", json=batch_payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["synced_count"] == 1
+    assert data["duplicate_count"] == 0
+    assert data["events"][0]["status"] == "COMMITTED"
+
+    # Resend: should be ALREADY_SYNCED
+    res2 = await client.post("/api/v1/ledger/sync", json=batch_payload)
+    assert res2.status_code == 200
+    data2 = res2.json()
+    assert data2["synced_count"] == 0
+    assert data2["duplicate_count"] == 1
+    assert data2["events"][0]["status"] == "ALREADY_SYNCED"

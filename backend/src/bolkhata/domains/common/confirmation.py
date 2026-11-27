@@ -37,28 +37,28 @@ class ConfirmationResult(BaseModel):
 
 # Explicit uncertainty phrases that mean "I don't know" -> UNCLEAR
 UNCERTAINTY_PATTERNS = [
-    r"\b(?:pata\s*nahi|malum\s*nahi|samajh\s*nahi|idea\s*nahi|dont\s*know|not\s*sure)\b",
-    r"(?:पता\s*नहीं|मालूम\s*नहीं|समझ\s*नहीं)",
+    r"\b(?:pata\s*nahi|malum\s*nahi|samajh\s*nahi|idea\s*nahi|dont\s*know|not\s*sure|jani\s*na|bujhlam\s*na)\b",
+    r"(?:पता\s*नहीं|मालूम\s*नहीं|समझ\s*नहीं|জানি\s*না|বুঝতে\s*পারিনি)",
 ]
 
 # Exact and regex patterns for YES/CONFIRM
 CONFIRM_PATTERNS = [
-    r"^(?:haan|ha|haa|haji|ji\s*haan|sahi|sahi\s*hai|theek|theek\s*hai|thik|thik\s*hai|chalega|bilkul|kar\s*do|likh\s*do|likho|yes|yep|yeah|ok|okay|correct|confirm)$",
-    r"\b(?:haan|ha|haa|haji|ji\s*haan|sahi\s*hai|theek\s*hai|thik\s*hai|yes|yep|yeah|correct|confirm)\b",
-    r"^(?:हाँ|हा|हाँजी|जी\s*हाँ|सही|सही\s*है|ठीक|ठीक\s*है|बिल्कुल|कर\s*दो|लिख\s*दो|लिखो)$",
+    r"^(?:haan|ha|haa|haji|ji\s*haan|sahi|sahi\s*hai|theek|theek\s*hai|thik|thik\s*hai|chalega|bilkul|kar\s*do|likh\s*do|likho|yes|yep|yeah|ok|okay|correct|confirm|hyan|hya|thik\s*achhe|shothik|kore\s*dao|lekho)$",
+    r"\b(?:haan|ha|haa|haji|ji\s*haan|sahi\s*hai|theek\s*hai|thik\s*hai|yes|yep|yeah|correct|confirm|hyan|thik\s*achhe|shothik)\b",
+    r"^(?:हाँ|हा|हाँजी|जी\s*हाँ|सही|सही\s*है|ठीक|ठीक\s*है|बिल्कुल|कर\s*दो|लिख\s*दो|लिखो|হ্যাঁ|হ্যা|ঠিক|ঠিক\s*আছে|সঠিক|লিখে\s*দাও|করে\s*দাও|লেখো)$",
 ]
 
 # Exact and regex patterns for NO/REJECT
 REJECT_PATTERNS = [
-    r"^(?:nahi|nahin|na|galat|galat\s*hai|no|nope|wrong|not\s*this)$",
-    r"\b(?:galat|wrong)\b",
-    r"^(?:नहीं|नही|ना|गलत|गलत\s*है)$",
+    r"^(?:nahi|nahin|na|galat|galat\s*hai|no|nope|wrong|not\s*this|bhul|bhul\s*hoyeche|noy)$",
+    r"\b(?:galat|wrong|bhul|bhul\s*hoyeche)\b",
+    r"^(?:नहीं|नही|ना|गलत|गलत\s*है|না|নয়|ভুল|ভুল\s*হয়েছে|ঠিক\s*না)$",
 ]
 
 # Exact and regex patterns for CANCEL/STOP
 CANCEL_PATTERNS = [
-    r"\b(?:ruko|rok|roko|cancel|cancel\s*karo|stop|chhod\s*do|mat\s*karo|mat\s*likho|rehne\s*do)\b",
-    r"(?:रुको|रोक|रोको|रद्द|रद्द\s*करो|छोड़\s*दो|मत\s*लिखो|रहने\s*दो)",
+    r"\b(?:ruko|rok|roko|cancel|cancel\s*karo|stop|chhod\s*do|mat\s*karo|mat\s*likho|rehne\s*do|thamo|batil|batil\s*koro|koro\s*na)\b",
+    r"(?:रुको|रोक|रोको|रद्द|रद्द\s*करो|छोड़\s*दो|मत\s*लिखो|रहने\s*दो|থামো|বাতিল|বাতিল\s*করো|করো\s*না)",
 ]
 
 # Correction indicator patterns ("nahi X nahi Y", "X nahi Y", "badal do", "X ki jagah Y")

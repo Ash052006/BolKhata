@@ -47,6 +47,11 @@ from bolkhata.domains.ledger.resolver import (
     CustomerResolver,
     normalize_customer_name,
 )
+from bolkhata.domains.ledger.sync import (
+    SyncBatchRequest,
+    SyncBatchResponse,
+    process_sync_batch,
+)
 
 router = APIRouter(prefix="/api/v1/ledger", tags=["ledger"])
 
@@ -799,3 +804,20 @@ async def wipe_all_data(
         "status": "wiped",
         "message": "All customer records and ledger events have been permanently deleted.",
     }
+
+
+# ---------------------------------------------------------------------------
+# Feature F9: Local-First Event Synchronization (ADR 0008)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/sync", response_model=SyncBatchResponse)
+async def sync_offline_events(
+    batch: SyncBatchRequest,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> SyncBatchResponse:
+    """
+    Synchronize a batch of offline ledger events idempotently.
+    Commutative convergence guarantees identical balances across reordering and network partitions.
+    """
+    return await process_sync_batch(session, batch)

@@ -1,7 +1,7 @@
 # Scaler x Wispr Flow Hackathon — Round 1 Submission Draft
 
-> **Project Name:** BolKhata (बोलखाता)  
-> **Track:** Small Business / Everyday Access  
+> **Project Name:** BolKhata (बोलखाता)
+> **Track:** Small Business / Everyday Access
 > **Core Value Proposition:** Voice-First, Money-Safe Ledger for Indian Kirana Shopkeepers
 
 ---

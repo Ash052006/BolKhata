@@ -230,30 +230,66 @@ export const LedgerApp: React.FC = () => {
       >
         <div>
           <h1 style={{ fontSize: '1.75rem', fontWeight: 900, margin: 0, color: '#059669' }}>
-            BolKhata <span style={{ fontSize: '1.25rem', fontWeight: 600, color: '#4b5563' }}>(बोलखाता)</span>
+            BolKhata{' '}
+            <span style={{ fontSize: '1.25rem', fontWeight: 600, color: '#4b5563' }}>
+              {scriptMode === 'bengali' ? '(বোলখাতা)' : '(बोलखाता)'}
+            </span>
           </h1>
           <p style={{ margin: '0.15rem 0 0', fontSize: '0.85rem', color: '#6b7280' }}>
-            {isDev ? 'किराना दुकानदारों के लिए आवाज़ से चलने वाला बहीखाता' : 'Voice-First Kirana Ledger'}
+            {scriptMode === 'bengali'
+              ? 'মুদি দোকানদারদের জন্য কণ্ঠস্বর-চালিত খাতা'
+              : isDev
+              ? 'किराना दुकानदारों के लिए आवाज़ से चलने वाला बहीखाता'
+              : 'Voice-First Kirana Ledger'}
           </p>
         </div>
 
-        {/* Script Toggle */}
-        <button
-          type="button"
-          onClick={() => setScriptMode((prev) => (prev === 'devanagari' ? 'roman' : 'devanagari'))}
-          style={{
-            padding: '0.4rem 0.8rem',
-            borderRadius: '0.5rem',
-            border: '2px solid #059669',
-            background: '#f0fdf4',
-            color: '#059669',
-            fontWeight: 800,
-            fontSize: '0.9rem',
-            cursor: 'pointer',
-          }}
-        >
-          {scriptMode === 'devanagari' ? 'अ Devanagari' : 'A Roman'}
-        </button>
+        {/* Script & Sync Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span
+            style={{
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              padding: '0.25rem 0.5rem',
+              borderRadius: '9999px',
+              background: isOffline ? '#fee2e2' : '#dcfce7',
+              color: isOffline ? '#991b1b' : '#166534',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+            }}
+          >
+            <span>{isOffline ? '⚡' : '🟢'}</span>
+            <span>{isOffline ? 'Offline' : 'Synced'}</span>
+          </span>
+
+          <button
+            type="button"
+            onClick={() =>
+              setScriptMode((prev) => {
+                if (prev === 'devanagari') return 'bengali'
+                if (prev === 'bengali') return 'roman'
+                return 'devanagari'
+              })
+            }
+            style={{
+              padding: '0.4rem 0.75rem',
+              borderRadius: '0.5rem',
+              border: '2px solid #059669',
+              background: '#f0fdf4',
+              color: '#059669',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+            }}
+          >
+            {scriptMode === 'devanagari'
+              ? 'अ Devanagari'
+              : scriptMode === 'bengali'
+              ? 'বা বাংলা'
+              : 'A Roman'}
+          </button>
+        </div>
       </header>
 
       {/* Error Notices */}

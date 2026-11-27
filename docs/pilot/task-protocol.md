@@ -1,6 +1,6 @@
 # BolKhata Field Pilot: 10-Transaction Comparative Protocol
 
-> **Purpose:** Measure task completion time and error rates: **BolKhata Voice** vs **Merchant's Baseline Method** (Paper Notebook or Manual App).  
+> **Purpose:** Measure task completion time and error rates: **BolKhata Voice** vs **Merchant's Baseline Method** (Paper Notebook or Manual App).
 > **Methodology Invariant:** Stopwatch timed side-by-side. Zero synthetic measurements.
 
 ---

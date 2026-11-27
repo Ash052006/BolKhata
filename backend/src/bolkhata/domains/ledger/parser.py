@@ -12,22 +12,25 @@ from __future__ import annotations
 
 import re
 
+from bolkhata.domains.common.bengali_numbers import extract_bengali_numbers
 from bolkhata.domains.common.numbers import extract_numbers
 from bolkhata.domains.common.units import parse_money_amount, parse_quantity
 from bolkhata.domains.ledger.models import LedgerIntent
 
 
 def _extract_date_word(text: str) -> tuple[str, str]:
-    """Extract date word (aaj, kal, parso) and return (cleaned_text, date)."""
+    """Extract date word (aaj, kal, parso, porshu) and return (cleaned_text, date)."""
     text_lower = text.lower()
-    if re.search(r"\bparso\b|\bपरसों\b", text_lower):
-        cleaned = re.sub(r"\bparso\b|\bपरसों\b", "", text, flags=re.IGNORECASE)
+    if re.search(r"\bparso\b|\bपरसों\b|\bপরশু\b|\bporshu\b", text_lower):
+        cleaned = re.sub(r"\bparso\b|\bपरसों\b|\bপরশু\b|\bporshu\b", "", text, flags=re.IGNORECASE)
         return cleaned.strip(), "parso"
-    if re.search(r"\bkal\b|\bकल\b", text_lower):
-        cleaned = re.sub(r"\bkal\b|\bकल\b", "", text, flags=re.IGNORECASE)
+    if re.search(r"\bkal\b|\bकल\b|\bকাল\b|\bকালকে\b|\bkaalke\b", text_lower):
+        cleaned = re.sub(
+            r"\bkal\b|\bकल\b|\bকাল\b|\bকালকে\b|\bkaalke\b", "", text, flags=re.IGNORECASE
+        )
         return cleaned.strip(), "kal"
-    if re.search(r"\baaj\b|\bआज\b", text_lower):
-        cleaned = re.sub(r"\baaj\b|\bआज\b", "", text, flags=re.IGNORECASE)
+    if re.search(r"\baaj\b|\bआज\b|\bআজ\b|\bআজি\b|\baji\b", text_lower):
+        cleaned = re.sub(r"\baaj\b|\bआज\b|\bআজ\b|\bআজি\b|\baji\b", "", text, flags=re.IGNORECASE)
         return cleaned.strip(), "aaj"
     return text, "aaj"
 
@@ -41,14 +44,22 @@ def _extract_payment_mode(text: str) -> str:
 
 
 def _extract_customer_name(text: str) -> str | None:
-    """Extract customer name from subject positions before postpositions."""
+    """Extract customer name from subject positions before postpositions or honorifics."""
     # Matches patterns like:
-    # "Ramesh ji ko", "Sharma ji ke khate me", "Verma ji ne", "Gupta se"
+    # "Ramesh ji ko", "Sharma ji ke khate me", "Verma ji ne", "Gupta se", "Das babu ke"
     m = re.search(
-        r"^(?:arre\s+|sunno\s+)?(?P<name>[a-zA-Z\u0900-\u097f\s]+?)\s+(?:ji\s+|bhai\s+|uncle\s+|aunty\s+|sahab\s+)?(?:ko|ke\s+khate|ke\s+account|ne|se|ka)\b",
+        r"^(?:arre\s+|sunno\s+)?(?P<name>[a-zA-Z\u0900-\u097f\u0980-\u09ff\s]+?)\s+(?:ji\s+|bhai\s+|uncle\s+|aunty\s+|sahab\s+|babu\s+|da\s+|dada\s+|didi\s+)?(?:ko|ke\s+khate|ke\s+account|ne|se|ka|er|kache)\b",
         text.strip(),
         re.IGNORECASE,
     )
+    if not m:
+        # Pattern where honorific marks the boundary (e.g. "Ghosh da paanch sho", "Das babu koto baki")
+        m = re.search(
+            r"^(?:arre\s+|sunno\s+)?(?P<name>[a-zA-Z\u0900-\u097f\u0980-\u09ff\s]+?)\s+(?:babu|da|dada|didi|ji|sahab)\b",
+            text.strip(),
+            re.IGNORECASE,
+        )
+
     if m:
         candidate = m.group("name").strip()
         # Clean filler words
@@ -56,7 +67,9 @@ def _extract_customer_name(text: str) -> str | None:
         if tokens and tokens[0].lower() in ("arre", "suno", "hey", "please", "bhai"):
             tokens = tokens[1:]
         name = " ".join(tokens)
-        if name and not any(w in name.lower() for w in ("kitna", "baaki", "kharcha", "nagad")):
+        if name and not any(
+            w in name.lower() for w in ("kitna", "baaki", "kharcha", "nagad", "koto")
+        ):
             return name
     return None
 
@@ -169,7 +182,8 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
         )
 
     if re.search(
-        r"\b(?:kitna\s+baaki|balance|hisaab\s+batao|kitna\s+hisaab|kitna\s+hua)\b", t_lower
+        r"\b(?:kitna\s+baaki|balance|hisaab\s+batao|kitna\s+hisaab|kitna\s+hua|koto\s+baki|koto\s+holo)\b|(?:কত\s*বাকি|কত\s*হলো)",
+        t_lower,
     ):
         customer = _extract_customer_name(cleaned_text)
         return LedgerIntent(
@@ -182,19 +196,40 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
             date=date_val,
         )
 
-    # 3. Extract numbers/amounts
-    found_numbers = extract_numbers(cleaned_text)
+    # 3. Extract numbers/amounts (avoiding false matches from customer name prefix)
+    amount_search_text = cleaned_text
+    cand_customer = _extract_customer_name(cleaned_text)
+    if cand_customer:
+        m_cust = re.search(
+            rf"^(?:arre\s+|sunno\s+)?{re.escape(cand_customer)}\s+(?:ji|bhai|uncle|aunty|sahab|babu|da|dada|didi)?\s*(?:ko|ke\s+khate|ke\s+account|ne|se|ka|er|kache)?\b",
+            amount_search_text,
+            re.IGNORECASE,
+        )
+        if m_cust:
+            amount_search_text = amount_search_text[m_cust.end() :].strip()
+
+    found_hindi = extract_numbers(amount_search_text)
+    found_bn = extract_bengali_numbers(amount_search_text)
+
+    # Prioritize whichever extractor captured the longer/more complete token span
+    if found_bn and found_hindi:
+        span_bn = found_bn[0].end_char - found_bn[0].start_char
+        span_hi = found_hindi[0].end_char - found_hindi[0].start_char
+        found_numbers = found_bn if span_bn > span_hi else found_hindi
+    else:
+        found_numbers = found_hindi or found_bn
+
     amount: float | None = None
     if found_numbers:
         amount = found_numbers[0].value
 
     # Check for direct money phrase
-    money_res = parse_money_amount(cleaned_text)
+    money_res = parse_money_amount(amount_search_text)
     if money_res is not None:
         amount = money_res.amount
 
-    # 4. Expense Intent (kharcha)
-    if re.search(r"\b(?:kharcha|expense|chai|bijli\s+bill|samosa|kiraya)\b", t_lower):
+    # 4. Expense Intent (kharcha / khoroch)
+    if re.search(r"\b(?:kharcha|expense|chai|bijli\s+bill|samosa|kiraya|khoroch|খরচ)\b", t_lower):
         # Items / notes
         items: list[str] = []
         for word in ("chai", "samosa", "bijli bill", "kiraya", "nashta"):
@@ -214,10 +249,11 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
             payment_mode=payment_mode,
         )
 
-    # 5. Payment Received (jama / payment mila)
+    # 5. Payment Received (jama / payment mila / diyeche)
     if re.search(
-        r"\b(?:jama|diye|mila|aaye|aaya|paid|payment|pay\s+kiya)\b", t_lower
-    ) and not re.search(r"\budhaar\b|\blikh\b", t_lower):
+        r"\b(?:jama|diye|mila|aaye|aaya|paid|payment|pay\s+kiya|diyeche|peyechi)\b|(?:জমা|দিয়েছে|টাকা\s*দিল)",
+        t_lower,
+    ) and not re.search(r"\budhaar\b|\blikh\b|\bdhaar\b|ধার", t_lower):
         customer = _extract_customer_name(cleaned_text)
         return LedgerIntent(
             name="payment_received",
@@ -250,10 +286,11 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
             payment_mode="cash",
         )
 
-    # 7. Add Credit Sale (udhaar / likho)
-    if re.search(r"\b(?:udhaar|likho|likh\s+do|likh\s+lo|khate\s+me|credit)\b", t_lower) or (
-        amount is not None and re.search(r"\b(?:ko|ke\s+khate)\b", t_lower)
-    ):
+    # 7. Add Credit Sale (udhaar / likho / baki / dhaar)
+    if re.search(
+        r"\b(?:udhaar|likho|likh\s+do|likh\s+lo|khate\s+me|credit|baki|dhaar)\b|(?:ধার|বাকি|খাতায়|লিখুন|লেখো)",
+        t_lower,
+    ) or (amount is not None and re.search(r"\b(?:ko|ke\s+khate|ke|kache|er\s+khatai)\b", t_lower)):
         customer = _extract_customer_name(cleaned_text)
         qty_res = parse_quantity(cleaned_text)
         credit_items: list[str] = []
@@ -261,11 +298,14 @@ def parse_ledger_rules(text: str) -> LedgerIntent | None:
             "chini",
             "namak",
             "chawal",
+            "chal",
             "atta",
             "tel",
             "dal",
             "milk",
             "doodh",
+            "dudh",
+            "dim",
             "biscuit",
             "soap",
         ):

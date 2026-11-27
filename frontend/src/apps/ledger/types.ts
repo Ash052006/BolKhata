@@ -2,8 +2,8 @@
  * Types and interfaces for the BolKhata Kirana Ledger PWA.
  */
 
-export type ScriptMode = 'devanagari' | 'roman'
-export type LanguageMode = 'hi' | 'en' | 'hinglish'
+export type ScriptMode = 'devanagari' | 'roman' | 'bengali'
+export type LanguageMode = 'hi' | 'en' | 'hinglish' | 'bn'
 
 export interface CustomerSummary {
   id: string
@@ -11,6 +11,17 @@ export interface CustomerSummary {
   phone: string | null
   balance: number
   created_at: string
+}
+
+export interface AgeingSummary {
+  customer_id: string
+  customer_name: string
+  total_balance: number
+  bucket_0_7: number
+  bucket_8_30: number
+  bucket_31_60: number
+  bucket_60_plus: number
+  oldest_due_days: number
 }
 
 export interface LedgerEntry {
@@ -68,4 +79,15 @@ export interface PendingEntryState {
   } | null
   read_back: string
   raw_text: string
+}
+
+export interface EntryExplanation {
+  entry_id: string
+  event_type: string
+  amount: number
+  customer_name: string | null
+  provenance: Record<string, string>
+  confidence_score: number
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH'
+  redacted_json: string
 }

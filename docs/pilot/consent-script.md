@@ -1,8 +1,8 @@
 # BolKhata Shopkeeper Pilot Consent Script (सहमति पत्र)
 
-> **Document Type:** Field Pilot Participant Consent Protocol  
-> **Languages:** Hindi & English  
-> **Compliance:** Digital Personal Data Protection (DPDP) Act, 2023  
+> **Document Type:** Field Pilot Participant Consent Protocol
+> **Languages:** Hindi & English
+> **Compliance:** Digital Personal Data Protection (DPDP) Act, 2023
 > **Rule:** Plain, respectful, and transparent. No legalistic intimidation.
 
 ---
